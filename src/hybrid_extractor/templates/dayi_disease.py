@@ -12,6 +12,7 @@ from ..models import (
     ExtractionRequest,
     ExtractionResult,
     FieldEvidence,
+    PageClassification,
     TemplateMatch,
 )
 from ..preprocessing import extract_page_description, normalize_text
@@ -29,16 +30,25 @@ PREVENTION = "\u9884\u9632"
 
 class DayiDiseaseTemplateParser(BaseTemplateParser):
     template_id = "dayi_disease_v1"
+    site_id = "dayi"
     site_name = "\u4e2d\u56fd\u533b\u836f\u4fe1\u606f\u67e5\u8be2\u5e73\u53f0"
     page_type = "disease_page"
+    scenario = "disease_detail"
 
     def __init__(self) -> None:
         rule_path = TEMPLATE_DIR / "dayi_disease.json"
         self.rules = json.loads(Path(rule_path).read_text(encoding="utf-8"))
 
     def match(
-        self, request: ExtractionRequest, soup: BeautifulSoup, page_title: str
+        self,
+        request: ExtractionRequest,
+        soup: BeautifulSoup,
+        page_title: str,
+        classification: PageClassification,
     ) -> Optional[TemplateMatch]:
+        if classification.site_id != self.site_id or classification.scenario != self.scenario:
+            return None
+
         title_needles = self.rules["match"]["title_contains"]
         html_needles = self.rules["match"]["html_contains"]
         html = request.raw_html
@@ -52,9 +62,11 @@ class DayiDiseaseTemplateParser(BaseTemplateParser):
 
         return TemplateMatch(
             template_id=self.template_id,
+            site_id=self.site_id,
             site_name=self.site_name,
             match_score=score,
             page_type=self.page_type,
+            scenario=self.scenario,
         )
 
     def extract(

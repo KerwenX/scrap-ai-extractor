@@ -3,6 +3,7 @@ from .models import ExtractionIntent
 
 
 MEDICAL_KEYWORDS = ["疾病", "病因", "症状", "诊断", "治疗", "预防", "注意事项"]
+QA_KEYWORDS = ["问答", "问题", "回答", "摘要"]
 
 
 def parse_intent(user_prompt: str) -> ExtractionIntent:
@@ -11,9 +12,13 @@ def parse_intent(user_prompt: str) -> ExtractionIntent:
 
     if any(keyword in normalized for keyword in MEDICAL_KEYWORDS):
         entity_type = "disease_page"
+    elif any(keyword in normalized for keyword in QA_KEYWORDS):
+        entity_type = "qa_page"
 
     return ExtractionIntent(
         entity_type=entity_type,
-        requested_capabilities=MEDICAL_KEYWORDS if entity_type else [],
+        requested_capabilities=(
+            MEDICAL_KEYWORDS if entity_type == "disease_page" else QA_KEYWORDS if entity_type == "qa_page" else []
+        ),
         normalized_prompt=normalized or DEFAULT_MEDICAL_PROMPT,
     )

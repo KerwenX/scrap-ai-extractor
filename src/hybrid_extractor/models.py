@@ -18,6 +18,15 @@ class ExtractionIntent(BaseModel):
     normalized_prompt: str
 
 
+class PageClassification(BaseModel):
+    site_id: str = "unknown"
+    site_name: str = "unknown"
+    page_type: str = "unknown"
+    scenario: str = "unknown"
+    confidence: float = 0.0
+    signals: List[str] = Field(default_factory=list)
+
+
 class ValidationIssue(BaseModel):
     field: str
     issue_type: str
@@ -44,9 +53,12 @@ class ExtractionResult(BaseModel):
 
 class TemplateMatch(BaseModel):
     template_id: str
+    site_id: str
     site_name: str
     match_score: float
     page_type: str
+    scenario: str
+    version: str = "v1"
 
 
 class ExtractionResponse(BaseModel):

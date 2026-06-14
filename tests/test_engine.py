@@ -45,3 +45,18 @@ def test_engine_falls_back_for_unknown_template():
     assert response.status == "success"
     assert response.extractor_type == "llm"
     assert response.data["name"] == "未知疾病"
+
+
+def test_engine_uses_deterministic_parser_for_known_qa_template():
+    html = Path("tests/fixtures/dayi_qa_sample.html").read_text(encoding="utf-8")
+    engine = HybridExtractionEngine(fallback_extractor=FakeFallbackExtractor())
+    request = ExtractionRequest(
+        url="https://www.dayi.org.cn/qa/123.html",
+        raw_html=html,
+        user_prompt="提取问答摘要",
+    )
+    response = engine.extract(request)
+    assert response.status == "success"
+    assert response.extractor_type == "deterministic"
+    assert response.template_id == "dayi_qa_v1"
+    assert "规律作息" in response.data["summary"]

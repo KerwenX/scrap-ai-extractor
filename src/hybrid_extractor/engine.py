@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
+from .classification import PageClassifier
 from .extractors import BaseFallbackExtractor, ScrapeGraphFallbackExtractor
 from .intent import parse_intent
 from .logging_utils import get_logger
@@ -16,9 +17,11 @@ class HybridExtractionEngine:
         self,
         registry: Optional[TemplateRegistry] = None,
         fallback_extractor: Optional[BaseFallbackExtractor] = None,
+        classifier: Optional[PageClassifier] = None,
     ) -> None:
         self.registry = registry or TemplateRegistry()
         self.fallback_extractor = fallback_extractor or ScrapeGraphFallbackExtractor()
+        self.classifier = classifier or PageClassifier()
         self.logger = get_logger(self.__class__.__name__)
 
     def extract(self, request: ExtractionRequest) -> ExtractionResponse:
@@ -30,10 +33,12 @@ class HybridExtractionEngine:
         soup = build_soup(cleaned_html)
         title = extract_page_title(soup)
         intent = parse_intent(request.user_prompt)
+        classification = self.classifier.classify(request, soup)
 
-        match, parser = self.registry.match(request, soup, title)
+        match, parser = self.registry.match(request, soup, title, classification)
         debug_trace = {
             "page_title": title,
+            "classification": classification.model_dump(),
             "template_match": match.model_dump() if match else None,
             "intent": intent.model_dump(),
         }
@@ -96,4 +101,6 @@ class HybridExtractionEngine:
     def _required_fields(self, intent) -> Iterable[str]:
         if intent.entity_type == "disease_page":
             return ["name", "summary", "symptoms", "treatment"]
+        if intent.entity_type == "qa_page":
+            return ["summary"]
         return ["result"]

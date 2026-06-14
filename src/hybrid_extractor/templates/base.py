@@ -5,17 +5,29 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
-from ..models import ExtractionIntent, ExtractionRequest, ExtractionResult, TemplateMatch
+from ..models import (
+    ExtractionIntent,
+    ExtractionRequest,
+    ExtractionResult,
+    PageClassification,
+    TemplateMatch,
+)
 
 
 class BaseTemplateParser(ABC):
     template_id: str
+    site_id: str
     site_name: str
     page_type: str
+    scenario: str
 
     @abstractmethod
     def match(
-        self, request: ExtractionRequest, soup: BeautifulSoup, page_title: str
+        self,
+        request: ExtractionRequest,
+        soup: BeautifulSoup,
+        page_title: str,
+        classification: PageClassification,
     ) -> Optional[TemplateMatch]:
         raise NotImplementedError
 

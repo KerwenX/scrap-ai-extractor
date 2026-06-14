@@ -1,0 +1,8 @@
+{
+  "template_id": "dayi_qa_v1",
+  "site_name": "中国医药信息查询平台",
+  "match": {
+    "title_contains": ["问", "中国医药信息查询平台"],
+    "html_contains": ["qa-answer", "doctor-name", "dayi.org.cn"]
+  }
+}
