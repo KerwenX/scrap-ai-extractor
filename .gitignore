@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+logs/
+dist/
+build/
+*.egg-info/
+result.json
+Scrapegraph-ai/

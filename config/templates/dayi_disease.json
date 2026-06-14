@@ -1,0 +1,21 @@
+{
+  "template_id": "dayi_disease_v1",
+  "site_name": "中国医药信息查询平台",
+  "match": {
+    "title_contains": ["中国医药信息查询平台"],
+    "html_contains": ["van-tabs__nav", "article-module-container-padding", "dayi.org.cn"]
+  },
+  "sections": [
+    "概述",
+    "病因",
+    "症状",
+    "就医",
+    "检查",
+    "诊断",
+    "治疗",
+    "预后",
+    "日常",
+    "饮食",
+    "预防"
+  ]
+}
