@@ -49,9 +49,15 @@ def test_engine_falls_back_for_unknown_template():
     assert response.extractor_type == "llm"
     assert response.data["name"] == "\u672a\u77e5\u75be\u75c5"
     assert response.debug_trace["prompt_version"] == "v1"
+    assert response.debug_trace["template_analysis"]["summary"]
+    assert response.debug_trace["template_analysis_prompt"]
+    assert response.debug_trace["template_plan_prompt"]
     candidate_path = response.debug_trace.get("template_candidate_path")
     assert candidate_path
     assert Path(candidate_path).exists()
+    candidate_payload = Path(candidate_path).read_text(encoding="utf-8")
+    assert '"analysis"' in candidate_payload
+    assert '"proposed_plan"' in candidate_payload
 
 
 def test_engine_uses_deterministic_parser_for_known_qa_template():

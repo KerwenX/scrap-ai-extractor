@@ -15,6 +15,11 @@ SYSTEM_TEMPLATE_PLAN_PROMPT = (
     "field anchors briefly, and avoid site-specific code unless deterministic rules are insufficient."
 )
 
+SYSTEM_TEMPLATE_ANALYSIS_PROMPT = (
+    "Analyze the page template before writing rules. Identify stable anchors, field shapes, repeatable "
+    "sections, and which fields can or cannot be extracted deterministically."
+)
+
 DISEASE_FIELD_HINTS = [
     "name",
     "summary",
@@ -69,6 +74,22 @@ def build_template_plan_prompt(user_prompt: str, extracted_fields: list[str]) ->
         "1. Propose selectors that can migrate across machines.\n"
         "2. Prefer CSS, metadata, headings, labels, and section anchors.\n"
         "3. Separate deterministic candidates from fields that still need LLM fallback.\n\n"
+        "[user-requirement]\n"
+        f"{user_prompt}\n\n"
+        "[observed-fields]\n"
+        f"{fields_text}\n"
+    )
+
+
+def build_template_analysis_prompt(user_prompt: str, extracted_fields: list[str]) -> str:
+    fields_text = ", ".join(extracted_fields) if extracted_fields else "none"
+    return (
+        f"[system v={PROMPT_VERSION}]\n"
+        f"{SYSTEM_TEMPLATE_ANALYSIS_PROMPT}\n\n"
+        "[rules]\n"
+        "1. Analyze before proposing extraction rules.\n"
+        "2. Describe stable DOM anchors, visible labels, section titles, and repeated structures.\n"
+        "3. Mark fields that are poor deterministic candidates for later LLM fallback.\n\n"
         "[user-requirement]\n"
         f"{user_prompt}\n\n"
         "[observed-fields]\n"

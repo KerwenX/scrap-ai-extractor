@@ -1,5 +1,9 @@
 from hybrid_extractor.models import ExtractionIntent
-from hybrid_extractor.prompts import build_extraction_prompt, build_template_plan_prompt
+from hybrid_extractor.prompts import (
+    build_extraction_prompt,
+    build_template_analysis_prompt,
+    build_template_plan_prompt,
+)
 
 
 def test_build_extraction_prompt_includes_contract_and_user_requirement():
@@ -17,4 +21,10 @@ def test_build_extraction_prompt_includes_contract_and_user_requirement():
 def test_build_template_plan_prompt_includes_fields():
     prompt = build_template_plan_prompt("extract disease info", ["name", "symptoms"])
     assert "portable selectors" in prompt
+    assert "name, symptoms" in prompt
+
+
+def test_build_template_analysis_prompt_includes_analysis_stage():
+    prompt = build_template_analysis_prompt("extract disease info", ["name", "symptoms"])
+    assert "Analyze before proposing extraction rules" in prompt
     assert "name, symptoms" in prompt

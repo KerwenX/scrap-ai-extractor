@@ -14,11 +14,17 @@ from .models import (
     FieldRule,
     FieldSelectorRule,
     PostProcessStep,
+    TemplateAnalysis,
     TemplateCandidate,
+    TemplateFieldAnalysis,
     TemplateManifest,
 )
 from .preprocessing import build_soup, clean_html, extract_page_title
-from .prompts import PROMPT_VERSION, build_template_plan_prompt
+from .prompts import (
+    PROMPT_VERSION,
+    build_template_analysis_prompt,
+    build_template_plan_prompt,
+)
 from .services.template_service import TemplateService
 from .template_registry import TemplateRegistry
 from .validation import validate_data
@@ -118,6 +124,8 @@ class HybridExtractionEngine:
         candidate_path = None
 
         if llm_validation.passed:
+            analysis = self._build_candidate_analysis(soup, llm_result.data)
+            proposed_plan = self._build_candidate_plan(soup, llm_result.data, analysis)
             candidate = TemplateCandidate(
                 request_id=request.request_id,
                 site_id=classification.site_id,
@@ -129,10 +137,15 @@ class HybridExtractionEngine:
                 fingerprint=fingerprint,
                 extracted_fields=sorted(llm_result.data.keys()),
                 sample_data=dict(list(llm_result.data.items())[:8]),
-                proposed_plan=self._build_candidate_plan(soup, llm_result.data),
+                analysis=analysis,
+                proposed_plan=proposed_plan,
             )
             candidate_path = str(self.template_service.persist_candidate(candidate))
             debug_trace["template_candidate_path"] = candidate_path
+            debug_trace["template_analysis"] = analysis.model_dump() if analysis else None
+            debug_trace["template_analysis_prompt"] = build_template_analysis_prompt(
+                request.user_prompt, sorted(llm_result.data.keys())
+            )
             debug_trace["template_plan_prompt"] = build_template_plan_prompt(
                 request.user_prompt, sorted(llm_result.data.keys())
             )
@@ -163,7 +176,70 @@ class HybridExtractionEngine:
             return ["summary"]
         return ["result"]
 
-    def _build_candidate_plan(self, soup, data: dict) -> ExtractionPlan | None:
+    def _build_candidate_analysis(self, soup, data: dict) -> TemplateAnalysis | None:
+        if not data:
+            return None
+
+        visible_text = soup.get_text(" ", strip=True)
+        page_cues: list[str] = []
+        if soup.find("h1"):
+            page_cues.append("page has h1 heading")
+        if soup.find("meta", attrs={"name": "description"}):
+            page_cues.append("page has description meta")
+
+        field_analyses: list[TemplateFieldAnalysis] = []
+        fallback_fields: list[str] = []
+        section_names = {
+            "causes": "\u75c5\u56e0",
+            "symptoms": "\u75c7\u72b6",
+            "diagnosis": "\u8bca\u65ad",
+            "treatment": "\u6cbb\u7597",
+            "prevention": "\u9884\u9632",
+        }
+
+        for field_name, value in data.items():
+            likely_anchors: list[str] = []
+            feasibility = "low"
+
+            if field_name == "name" and soup.find("h1"):
+                likely_anchors.append("h1")
+                feasibility = "high"
+            elif field_name == "summary" and soup.find("meta", attrs={"name": "description"}):
+                likely_anchors.append("meta[name=description]")
+                feasibility = "high"
+            elif field_name in section_names and section_names[field_name] in visible_text:
+                likely_anchors.append(f"section_tab:{section_names[field_name]}")
+                feasibility = "high"
+            elif field_name == "sections":
+                likely_anchors.append("repeated content sections")
+                feasibility = "medium"
+            else:
+                fallback_fields.append(field_name)
+
+            field_analyses.append(
+                TemplateFieldAnalysis(
+                    field_name=field_name,
+                    value_type=self._infer_value_type(value),
+                    likely_anchors=likely_anchors,
+                    extraction_notes=(
+                        "deterministic anchor available"
+                        if likely_anchors
+                        else "no stable deterministic anchor identified in heuristic phase"
+                    ),
+                    deterministic_feasibility=feasibility,
+                )
+            )
+
+        return TemplateAnalysis(
+            summary="Heuristic template analysis generated from one successful fallback extraction.",
+            page_cues=page_cues,
+            field_analyses=field_analyses,
+            fallback_fields=sorted(set(fallback_fields)),
+        )
+
+    def _build_candidate_plan(
+        self, soup, data: dict, analysis: TemplateAnalysis | None = None
+    ) -> ExtractionPlan | None:
         if not data:
             return None
         field_rules: list[FieldRule] = []
@@ -207,7 +283,24 @@ class HybridExtractionEngine:
                 )
             )
 
+        if analysis:
+            supported_fields = {
+                item.field_name
+                for item in analysis.field_analyses
+                if item.deterministic_feasibility in {"high", "medium"}
+            }
+            field_rules = [rule for rule in field_rules if rule.field_name in supported_fields]
+
         if not field_rules:
             return None
 
         return ExtractionPlan(mode="declarative", fields=field_rules)
+
+    def _infer_value_type(self, value) -> str:
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, list):
+            return "list"
+        if isinstance(value, dict):
+            return "object"
+        return "unknown"

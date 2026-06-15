@@ -65,6 +65,21 @@ class ExtractionPlan(BaseModel):
     code_entrypoint: str = ""
 
 
+class TemplateFieldAnalysis(BaseModel):
+    field_name: str
+    value_type: Literal["string", "list", "object", "unknown"] = "unknown"
+    likely_anchors: List[str] = Field(default_factory=list)
+    extraction_notes: str = ""
+    deterministic_feasibility: Literal["high", "medium", "low"] = "medium"
+
+
+class TemplateAnalysis(BaseModel):
+    summary: str
+    page_cues: List[str] = Field(default_factory=list)
+    field_analyses: List[TemplateFieldAnalysis] = Field(default_factory=list)
+    fallback_fields: List[str] = Field(default_factory=list)
+
+
 class ValidationIssue(BaseModel):
     field: str
     issue_type: str
@@ -125,6 +140,7 @@ class TemplateCandidate(BaseModel):
     fingerprint: PageFingerprint
     extracted_fields: List[str] = Field(default_factory=list)
     sample_data: Dict[str, Any] = Field(default_factory=dict)
+    analysis: Optional[TemplateAnalysis] = None
     proposed_plan: Optional[ExtractionPlan] = None
 
 

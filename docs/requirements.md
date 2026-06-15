@@ -105,3 +105,11 @@
 - 系统具备可测试性和可扩展性
 - 模板和解析规则与业务代码分离
 - 所有结果可追踪执行路径
+## Template solidification contract
+
+When LLM fallback succeeds and a page becomes a reusable template candidate, the system should preserve two runtime artifacts:
+
+- template analysis: field shapes, likely anchors, repeatable sections, and weak deterministic candidates
+- declarative DSL plan: reusable extraction rules generated from that analysis
+
+This is a runtime requirement for future solidification, not only a documentation convention.

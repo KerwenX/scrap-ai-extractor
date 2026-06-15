@@ -113,6 +113,13 @@ The extraction request is split into two layers:
 
 Current implementation keeps these internal constraints in `src/hybrid_extractor/prompts.py` so prompt behavior can evolve without requiring callers to rewrite their business prompts.
 
+For template solidification, the runtime is now modeled as two stages:
+
+- analysis stage: identify stable anchors, field shapes, repeatable sections, and weak deterministic candidates
+- DSL stage: generate a reusable declarative extraction plan from that analysis
+
+The first version stores both artifacts in template candidate files for later review and hardening.
+
 ## Documents
 
 - [Requirements](G:\code\Extractor\scrap-ai-extractor\docs\requirements.md)
