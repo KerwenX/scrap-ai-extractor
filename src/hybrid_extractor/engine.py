@@ -122,6 +122,7 @@ class HybridExtractionEngine:
         llm_validation = validate_data(llm_result.data, required_fields)
         debug_trace["llm_validation"] = llm_validation.model_dump()
         candidate_path = None
+        solidified_manifest = None
 
         if llm_validation.passed:
             analysis = self._build_candidate_analysis(soup, llm_result.data)
@@ -149,11 +150,29 @@ class HybridExtractionEngine:
             debug_trace["template_plan_prompt"] = build_template_plan_prompt(
                 request.user_prompt, sorted(llm_result.data.keys())
             )
+            solidified_manifest = self.template_service.solidify_candidate(
+                candidate,
+                list(required_fields),
+            )
+            if solidified_manifest is not None:
+                debug_trace["solidified_template_id"] = solidified_manifest.template_id
+                debug_trace["solidified_template_path"] = str(
+                    self.template_service.template_store_dir
+                    / f"{solidified_manifest.template_id}.json"
+                )
 
         status = "success" if llm_validation.passed else "failed"
         extractor_type = "hybrid" if parser and match else "llm"
-        template_id = match.template_id if match else None
-        page_type = match.page_type if match else intent.entity_type
+        template_id = (
+            match.template_id
+            if match
+            else solidified_manifest.template_id if solidified_manifest else None
+        )
+        page_type = (
+            match.page_type
+            if match
+            else solidified_manifest.page_type if solidified_manifest else intent.entity_type
+        )
 
         self.logger.info("LLM fallback finished with status=%s", status, extra=logger_extra)
         return ExtractionResponse(

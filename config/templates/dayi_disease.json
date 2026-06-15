@@ -1,28 +1,148 @@
 {
   "template_id": "dayi_disease_v1",
-  "parser_key": "builtin:dayi_disease",
+  "parser_key": "generic:rule",
   "site_id": "dayi",
   "site_name": "中国医药信息查询平台",
   "page_type": "disease_page",
   "scenario": "disease_detail",
   "version": "v1",
-  "match": {
-    "title_contains": ["中国医药信息查询平台"],
-    "html_contains": ["van-tabs__nav", "article-module-container-padding", "dayi.org.cn"]
-  },
-  "required_fields": ["name", "summary", "symptoms", "treatment"],
-  "sections": [
-    "概述",
-    "病因",
-    "症状",
-    "就医",
-    "检查",
-    "诊断",
-    "治疗",
-    "预后",
-    "日常",
-    "饮食",
-    "预防"
+  "required_fields": [
+    "name",
+    "summary",
+    "symptoms",
+    "treatment"
   ],
-  "notes": "Built-in disease detail parser for the Dayi site."
+  "extraction_plan": {
+    "mode": "declarative",
+    "fields": [
+      {
+        "field_name": "name",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": "h1",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      },
+      {
+        "field_name": "summary",
+        "selectors": [
+          {
+            "kind": "meta",
+            "value": "description",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      },
+      {
+        "field_name": "causes",
+        "selectors": [
+          {
+            "kind": "section_tab",
+            "value": "病因",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      },
+      {
+        "field_name": "symptoms",
+        "selectors": [
+          {
+            "kind": "section_tab",
+            "value": "症状",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      },
+      {
+        "field_name": "diagnosis",
+        "selectors": [
+          {
+            "kind": "section_tab",
+            "value": "诊断",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      },
+      {
+        "field_name": "treatment",
+        "selectors": [
+          {
+            "kind": "section_tab",
+            "value": "治疗",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      },
+      {
+        "field_name": "prevention",
+        "selectors": [
+          {
+            "kind": "section_tab",
+            "value": "预防",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null
+      }
+    ],
+    "code_entrypoint": ""
+  },
+  "notes": "DSL-first disease detail template for Dayi."
 }

@@ -32,32 +32,9 @@ class TemplateRegistry:
         classification: PageClassification,
         fingerprint=None,
     ) -> Tuple[Optional[TemplateMatch], Optional[BaseTemplateParser]]:
-        if fingerprint is not None:
-            for manifest in self.template_service.load_manifests():
-                if manifest.site_id != classification.site_id or manifest.scenario != classification.scenario:
-                    continue
-                if not manifest.fingerprint:
-                    continue
-                similarity = compare_fingerprints(fingerprint, manifest.fingerprint)
-                if similarity < 0.8:
-                    continue
-                parser = self.parsers_by_key.get(manifest.parser_key)
-                if parser is None and manifest.extraction_plan is not None:
-                    parser = GenericRuleTemplateParser(manifest)
-                if parser is None:
-                    continue
-                return (
-                    TemplateMatch(
-                        template_id=manifest.template_id,
-                        site_id=manifest.site_id,
-                        site_name=manifest.site_name,
-                        match_score=similarity,
-                        page_type=manifest.page_type,
-                        scenario=manifest.scenario,
-                        version=manifest.version,
-                    ),
-                    parser,
-                )
+        manifest_match = self._match_manifest(classification, fingerprint)
+        if manifest_match is not None:
+            return manifest_match
 
         best_match: Optional[TemplateMatch] = None
         best_parser: Optional[BaseTemplateParser] = None
@@ -71,3 +48,73 @@ class TemplateRegistry:
                 best_parser = parser
 
         return best_match, best_parser
+
+    def _match_manifest(
+        self,
+        classification: PageClassification,
+        fingerprint,
+    ) -> Tuple[Optional[TemplateMatch], Optional[BaseTemplateParser]] | None:
+        manifests = self.template_service.load_manifests()
+        dsl_manifests = [manifest for manifest in manifests if manifest.extraction_plan is not None]
+        legacy_manifests = [manifest for manifest in manifests if manifest.extraction_plan is None]
+
+        preferred = self._select_best_manifest(dsl_manifests, classification, fingerprint)
+        if preferred is None:
+            preferred = self._select_best_manifest(legacy_manifests, classification, fingerprint)
+
+        if preferred is None:
+            return None
+
+        best_manifest, best_score = preferred
+        parser = None
+        if best_manifest.extraction_plan is not None:
+            parser = GenericRuleTemplateParser(best_manifest)
+        elif best_manifest.parser_key in self.parsers_by_key:
+            parser = self.parsers_by_key[best_manifest.parser_key]
+
+        if parser is None:
+            return None
+
+        return (
+            TemplateMatch(
+                template_id=best_manifest.template_id,
+                site_id=best_manifest.site_id,
+                site_name=best_manifest.site_name,
+                match_score=best_score,
+                page_type=best_manifest.page_type,
+                scenario=best_manifest.scenario,
+                version=best_manifest.version,
+            ),
+            parser,
+        )
+
+    def _select_best_manifest(
+        self,
+        manifests,
+        classification: PageClassification,
+        fingerprint,
+    ) -> tuple | None:
+        best_manifest = None
+        best_score = 0.0
+
+        for manifest in manifests:
+            if manifest.site_id != classification.site_id or manifest.scenario != classification.scenario:
+                continue
+
+            score = 0.0
+            if manifest.fingerprint and fingerprint is not None:
+                score = compare_fingerprints(fingerprint, manifest.fingerprint)
+                if score < 0.8:
+                    continue
+            elif manifest.extraction_plan is not None:
+                score = 0.81
+
+            if score <= best_score:
+                continue
+
+            best_manifest = manifest
+            best_score = score
+
+        if best_manifest is None:
+            return None
+        return best_manifest, best_score

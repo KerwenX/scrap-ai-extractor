@@ -2,6 +2,7 @@ from pathlib import Path
 
 from hybrid_extractor.engine import HybridExtractionEngine
 from hybrid_extractor.extractors.base import BaseFallbackExtractor
+from hybrid_extractor.services.template_service import TemplateService
 from hybrid_extractor.models import ExtractionIntent, ExtractionRequest, ExtractionResult
 
 
@@ -58,6 +59,57 @@ def test_engine_falls_back_for_unknown_template():
     candidate_payload = Path(candidate_path).read_text(encoding="utf-8")
     assert '"analysis"' in candidate_payload
     assert '"proposed_plan"' in candidate_payload
+
+
+def test_engine_auto_solidifies_and_reuses_manifest(tmp_path):
+    html = """
+    <html>
+      <head>
+        <title>Custom Disease Page</title>
+        <meta name="description" content="这是页面摘要">
+      </head>
+      <body>
+        <h1>自定义病名</h1>
+        <div class="van-tabs__nav">
+          <div role="tab"><span class="van-tab__text">病因</span></div>
+          <div role="tab"><span class="van-tab__text">症状</span></div>
+          <div role="tab"><span class="van-tab__text">诊断</span></div>
+          <div role="tab"><span class="van-tab__text">治疗</span></div>
+        </div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">病因内容</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">症状内容</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">诊断内容</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">治疗内容</div></div>
+      </body>
+    </html>
+    """
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    engine = HybridExtractionEngine(
+        fallback_extractor=FakeFallbackExtractor(),
+        template_service=service,
+    )
+    request = ExtractionRequest(
+        url="https://example.com/custom-disease",
+        raw_html=html,
+        user_prompt="提取疾病基本信息、病因、症状、诊断、治疗",
+    )
+
+    first_response = engine.extract(request)
+    assert first_response.status == "success"
+    assert first_response.extractor_type == "llm"
+    assert first_response.debug_trace["solidified_template_id"]
+
+    second_response = engine.extract(request)
+    assert second_response.status == "success"
+    assert second_response.extractor_type == "deterministic"
+    assert second_response.template_id == first_response.debug_trace["solidified_template_id"]
+    assert second_response.data["name"] == "自定义病名"
+    assert second_response.data["symptoms"] == "症状内容"
+    assert second_response.data["treatment"] == "治疗内容"
 
 
 def test_engine_uses_deterministic_parser_for_known_qa_template():

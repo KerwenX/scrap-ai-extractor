@@ -1,13 +1,13 @@
 from pathlib import Path
 
+from hybrid_extractor.classification import PageClassifier
 from hybrid_extractor.models import ExtractionRequest
 from hybrid_extractor.preprocessing import build_soup, extract_page_title
-from hybrid_extractor.templates.dayi_disease import DayiDiseaseTemplateParser
-from hybrid_extractor.templates.dayi_qa import DayiQATemplateParser
-from hybrid_extractor.classification import PageClassifier
+from hybrid_extractor.services.template_service import TemplateService
+from hybrid_extractor.template_registry import TemplateRegistry
 
 
-def test_dayi_template_match_and_extract():
+def test_dayi_disease_template_is_loaded_from_manifest_and_extracts():
     html = Path("tests/fixtures/dayi_disease_sample.html").read_text(encoding="utf-8")
     request = ExtractionRequest(
         url="https://www.dayi.org.cn/symptom/123.html",
@@ -15,20 +15,28 @@ def test_dayi_template_match_and_extract():
         user_prompt="提取疾病基本信息、病因、症状、诊断、治疗和预防",
     )
     soup = build_soup(html)
-    parser = DayiDiseaseTemplateParser()
     classification = PageClassifier().classify(request, soup)
+    registry = TemplateRegistry(template_service=TemplateService())
 
-    match = parser.match(request, soup, extract_page_title(soup), classification)
+    match, parser = registry.match(
+        request,
+        soup,
+        extract_page_title(soup),
+        classification,
+        fingerprint=None,
+    )
     assert match is not None
+    assert parser is not None
     assert match.template_id == "dayi_disease_v1"
+    assert parser.parser_key == "generic:rule"
 
     result = parser.extract(request, soup, None)
     assert result.data["name"] == "气血不足"
-    assert result.data["transmission"] == "无传染性"
-    assert "归脾丸" in "".join(result.data["treatment"])
+    assert "神疲乏力" in result.data["symptoms"]
+    assert "益气补血" in result.data["treatment"]
 
 
-def test_dayi_qa_template_match_and_extract():
+def test_dayi_qa_template_is_loaded_from_manifest_and_extracts():
     html = Path("tests/fixtures/dayi_qa_sample.html").read_text(encoding="utf-8")
     request = ExtractionRequest(
         url="https://www.dayi.org.cn/qa/123.html",
@@ -36,13 +44,21 @@ def test_dayi_qa_template_match_and_extract():
         user_prompt="提取问答摘要",
     )
     soup = build_soup(html)
-    parser = DayiQATemplateParser()
     classification = PageClassifier().classify(request, soup)
+    registry = TemplateRegistry(template_service=TemplateService())
 
-    match = parser.match(request, soup, extract_page_title(soup), classification)
+    match, parser = registry.match(
+        request,
+        soup,
+        extract_page_title(soup),
+        classification,
+        fingerprint=None,
+    )
     assert match is not None
+    assert parser is not None
     assert match.template_id == "dayi_qa_v1"
+    assert parser.parser_key == "generic:rule"
 
     result = parser.extract(request, soup, None)
-    assert result.data["question"] == "气血不足怎么调理？"
     assert "规律作息" in result.data["summary"]
+    assert result.data["question"] == "气血不足怎么调理？"
