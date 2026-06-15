@@ -129,3 +129,21 @@ MVP 中漂移检测使用轻量策略：
 - DOM 指纹对比
 - 模板成功率监控
 - 自动候选规则生成
+## Internal prompt contract
+
+To keep the external interface simple, the platform separates business intent from extraction constraints.
+
+The caller supplies only:
+
+- `url`
+- `raw_html`
+- `user_prompt`
+
+The system keeps its own compact prompt contract in `src/hybrid_extractor/prompts.py` for:
+
+- JSON-only extraction discipline
+- evidence-grounded field generation
+- intent-aware field hints
+- future template-solidification prompt generation
+
+This allows prompt logic to evolve internally without changing the API contract.

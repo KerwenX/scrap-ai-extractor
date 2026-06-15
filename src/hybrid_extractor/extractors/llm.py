@@ -7,24 +7,13 @@ from scrapegraphai.models import DeepSeek
 
 from ..config import DEFAULT_DEEPSEEK_API_KEY
 from ..models import ExtractionIntent, ExtractionRequest, ExtractionResult
+from ..prompts import PROMPT_VERSION, build_extraction_prompt
 from .base import BaseFallbackExtractor
 
 
 class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
     def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
-        prompt = f"""
-你是网页结构化数据抽取系统。
-
-用户需求：
-{intent.normalized_prompt}
-
-请根据页面内容抽取结构化信息，并返回 JSON 对象。要求：
-1. 尽量只输出页面中明确出现的信息。
-2. 如果页面看起来是疾病详情页，请尽量输出字段：
-   name, summary, aliases, susceptible_population, transmission, departments,
-   causes, symptoms, diagnosis, treatment, nursing_and_precautions, prevention, sections
-3. 输出内容使用中文。
-"""
+        prompt = build_extraction_prompt(intent)
 
         model = DeepSeek(
             api_key=os.getenv("DEEPSEEK_API_KEY") or DEFAULT_DEEPSEEK_API_KEY,
@@ -35,7 +24,10 @@ class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
         graph = DocumentScraperGraph(
             prompt=prompt,
             source=request.raw_html,
-            config={"llm": {"model_instance": model, "model_tokens": 128000}},
+            config={
+                "llm": {"model_instance": model, "model_tokens": 128000},
+                "metadata": {"prompt_version": PROMPT_VERSION},
+            },
         )
         result = graph.run()
         if hasattr(result, "model_dump"):

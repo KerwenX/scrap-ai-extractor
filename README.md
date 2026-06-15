@@ -104,6 +104,15 @@ Endpoints:
 - `POST /extract`
 - `GET /templates`
 
+## Prompt strategy
+
+The extraction request is split into two layers:
+
+- user prompt: business intent only, such as fields or output goals
+- internal prompt contract: concise system rules for JSON-only output, evidence grounding, stable field naming, and reusable template thinking
+
+Current implementation keeps these internal constraints in `src/hybrid_extractor/prompts.py` so prompt behavior can evolve without requiring callers to rewrite their business prompts.
+
 ## Documents
 
 - [Requirements](G:\code\Extractor\scrap-ai-extractor\docs\requirements.md)

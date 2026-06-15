@@ -18,6 +18,7 @@ from .models import (
     TemplateManifest,
 )
 from .preprocessing import build_soup, clean_html, extract_page_title
+from .prompts import PROMPT_VERSION, build_template_plan_prompt
 from .services.template_service import TemplateService
 from .template_registry import TemplateRegistry
 from .validation import validate_data
@@ -58,6 +59,7 @@ class HybridExtractionEngine:
             "fingerprint": fingerprint.model_dump(),
             "template_match": match.model_dump() if match else None,
             "intent": intent.model_dump(),
+            "prompt_version": PROMPT_VERSION,
         }
 
         required_fields = self._required_fields(intent)
@@ -131,6 +133,9 @@ class HybridExtractionEngine:
             )
             candidate_path = str(self.template_service.persist_candidate(candidate))
             debug_trace["template_candidate_path"] = candidate_path
+            debug_trace["template_plan_prompt"] = build_template_plan_prompt(
+                request.user_prompt, sorted(llm_result.data.keys())
+            )
 
         status = "success" if llm_validation.passed else "failed"
         extractor_type = "hybrid" if parser and match else "llm"
