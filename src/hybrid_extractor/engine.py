@@ -7,7 +7,16 @@ from .extractors import BaseFallbackExtractor, ScrapeGraphFallbackExtractor
 from .fingerprinting import build_fingerprint
 from .intent import parse_intent
 from .logging_utils import get_logger
-from .models import ExtractionRequest, ExtractionResponse, TemplateCandidate, TemplateManifest
+from .models import (
+    ExtractionPlan,
+    ExtractionRequest,
+    ExtractionResponse,
+    FieldRule,
+    FieldSelectorRule,
+    PostProcessStep,
+    TemplateCandidate,
+    TemplateManifest,
+)
 from .preprocessing import build_soup, clean_html, extract_page_title
 from .services.template_service import TemplateService
 from .template_registry import TemplateRegistry
@@ -118,6 +127,7 @@ class HybridExtractionEngine:
                 fingerprint=fingerprint,
                 extracted_fields=sorted(llm_result.data.keys()),
                 sample_data=dict(list(llm_result.data.items())[:8]),
+                proposed_plan=self._build_candidate_plan(soup, llm_result.data),
             )
             candidate_path = str(self.template_service.persist_candidate(candidate))
             debug_trace["template_candidate_path"] = candidate_path
@@ -147,3 +157,52 @@ class HybridExtractionEngine:
         if intent.entity_type == "qa_page":
             return ["summary"]
         return ["result"]
+
+    def _build_candidate_plan(self, soup, data: dict) -> ExtractionPlan | None:
+        if not data:
+            return None
+        field_rules: list[FieldRule] = []
+
+        if "name" in data and soup.find("h1"):
+            field_rules.append(
+                FieldRule(
+                    field_name="name",
+                    selectors=[FieldSelectorRule(kind="css", value="h1")],
+                    postprocess=[PostProcessStep(op="strip")],
+                )
+            )
+
+        if "summary" in data and soup.find("meta", attrs={"name": "description"}):
+            field_rules.append(
+                FieldRule(
+                    field_name="summary",
+                    selectors=[FieldSelectorRule(kind="meta", value="description")],
+                    postprocess=[PostProcessStep(op="strip")],
+                )
+            )
+
+        section_names = {
+            "causes": "\u75c5\u56e0",
+            "symptoms": "\u75c7\u72b6",
+            "diagnosis": "\u8bca\u65ad",
+            "treatment": "\u6cbb\u7597",
+            "prevention": "\u9884\u9632",
+        }
+        tab_text = soup.get_text(" ", strip=True)
+        for field_name, section_title in section_names.items():
+            if field_name not in data:
+                continue
+            if section_title not in tab_text:
+                continue
+            field_rules.append(
+                FieldRule(
+                    field_name=field_name,
+                    selectors=[FieldSelectorRule(kind="section_tab", value=section_title)],
+                    postprocess=[PostProcessStep(op="strip")],
+                )
+            )
+
+        if not field_rules:
+            return None
+
+        return ExtractionPlan(mode="declarative", fields=field_rules)

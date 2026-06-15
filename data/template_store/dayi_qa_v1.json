@@ -20,5 +20,6 @@
   "required_fields": [
     "summary"
   ],
+  "extraction_plan": null,
   "notes": "Auto-captured from a successful deterministic parsing run."
 }

@@ -62,6 +62,18 @@ Request(url, raw_html, prompt)
 
 负责生成页面指纹，用于判断当前页面是否可以复用已固化模板。
 
+### `rule_runtime.py`
+
+负责执行字段规则 DSL。优先支持声明式规则：
+
+- CSS selector
+- id selector
+- meta selector
+- text pattern
+- section tab
+
+对于声明式规则难以覆盖的页面，再通过代码式规则兜底。
+
 ### `services/template_service.py`
 
 负责模板 manifest 和候选模板的本地持久化。由于它们是 JSON 文件，因此可以直接迁移到其他机器使用。

@@ -34,7 +34,7 @@ def test_engine_uses_deterministic_parser_for_known_template():
 
 
 def test_engine_falls_back_for_unknown_template():
-    html = "<html><head><title>Unknown</title></head><body><h1>Unknown Page</h1></body></html>"
+    html = '<html><head><title>Unknown</title><meta name="description" content="fallback summary"></head><body><h1>Unknown Page</h1></body></html>'
     engine = HybridExtractionEngine(fallback_extractor=FakeFallbackExtractor())
     request = ExtractionRequest(
         url="https://example.com/1",
@@ -45,6 +45,9 @@ def test_engine_falls_back_for_unknown_template():
     assert response.status == "success"
     assert response.extractor_type == "llm"
     assert response.data["name"] == "未知疾病"
+    candidate_path = response.debug_trace.get("template_candidate_path")
+    assert candidate_path
+    assert Path(candidate_path).exists()
 
 
 def test_engine_uses_deterministic_parser_for_known_qa_template():

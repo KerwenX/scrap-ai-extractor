@@ -7,7 +7,12 @@ from bs4 import BeautifulSoup
 from .fingerprinting import compare_fingerprints
 from .models import ExtractionRequest, PageClassification, TemplateMatch
 from .services.template_service import TemplateService
-from .templates import BaseTemplateParser, DayiDiseaseTemplateParser, DayiQATemplateParser
+from .templates import (
+    BaseTemplateParser,
+    DayiDiseaseTemplateParser,
+    DayiQATemplateParser,
+    GenericRuleTemplateParser,
+)
 
 
 class TemplateRegistry:
@@ -37,6 +42,8 @@ class TemplateRegistry:
                 if similarity < 0.8:
                     continue
                 parser = self.parsers_by_key.get(manifest.parser_key)
+                if parser is None and manifest.extraction_plan is not None:
+                    parser = GenericRuleTemplateParser(manifest)
                 if parser is None:
                     continue
                 return (

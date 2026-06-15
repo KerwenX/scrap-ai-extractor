@@ -34,6 +34,37 @@ class PageFingerprint(BaseModel):
     key_classes: List[str] = Field(default_factory=list)
 
 
+class PostProcessStep(BaseModel):
+    op: Literal[
+        "strip",
+        "strip_cn_punctuation",
+        "split_cn_list",
+        "unique",
+        "first_non_empty_line",
+    ]
+    args: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FieldSelectorRule(BaseModel):
+    kind: Literal["css", "id", "meta", "text_pattern", "section_tab", "code"]
+    value: str
+    attr: str = "text"
+    many: bool = False
+
+
+class FieldRule(BaseModel):
+    field_name: str
+    selectors: List[FieldSelectorRule] = Field(default_factory=list)
+    postprocess: List[PostProcessStep] = Field(default_factory=list)
+    fallback_value: Any = None
+
+
+class ExtractionPlan(BaseModel):
+    mode: Literal["declarative", "hybrid", "code"] = "declarative"
+    fields: List[FieldRule] = Field(default_factory=list)
+    code_entrypoint: str = ""
+
+
 class ValidationIssue(BaseModel):
     field: str
     issue_type: str
@@ -78,6 +109,7 @@ class TemplateManifest(BaseModel):
     version: str = "v1"
     fingerprint: Optional[PageFingerprint] = None
     required_fields: List[str] = Field(default_factory=list)
+    extraction_plan: Optional[ExtractionPlan] = None
     notes: str = ""
 
 
@@ -93,6 +125,7 @@ class TemplateCandidate(BaseModel):
     fingerprint: PageFingerprint
     extracted_fields: List[str] = Field(default_factory=list)
     sample_data: Dict[str, Any] = Field(default_factory=dict)
+    proposed_plan: Optional[ExtractionPlan] = None
 
 
 class ExtractionResponse(BaseModel):

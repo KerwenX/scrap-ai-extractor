@@ -17,6 +17,9 @@ The system focuses on large-scale parsing needs where the same site may contain 
 - Validation failures or template drift trigger LLM fallback
 - Output includes parsed data, template metadata, validation status, and debug trace
 - Successful fallback runs can persist reusable template candidates for later solidification
+- Solidification supports two modes:
+  - declarative field-rule DSL first
+  - code-based parsing hooks as fallback for hard cases
 
 ## Current scope
 
@@ -40,6 +43,7 @@ The project now separates responsibilities into:
 - `engine.py`: parsing workflow
 - `classification.py`: site and page-scenario recognition
 - `fingerprinting.py`: portable page signatures for template reuse
+- `rule_runtime.py`: executes declarative field rules
 
 This is intended to make future solidified parsing logic portable across machines by storing manifests and candidates as JSON files.
 
