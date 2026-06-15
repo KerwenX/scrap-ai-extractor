@@ -1,149 +1,224 @@
 # 架构设计
 
-## 1. 架构目标
+## 1. 设计目标
 
-MVP 采用分层架构，确保后续可以演进到多模板、多站点和多页面场景。
+本项目采用分层架构，目标是支持以下能力：
 
-这里的“场景”强调同一站点内的不同页面类型，例如：
+- 已知模板低成本、高性能解析
+- 未知模板可通过 LLM 快速完成抽取
+- 模板规则可持久化、可迁移、可继续固化
+- 解析逻辑与接口逻辑分离
 
-- 疾病详情页
-- 医疗问答页
-- 药品详情页
-- 医生详情页
+这里的“模板”不是只针对单个页面，而是针对同站点下同类页面场景的结构模式。
 
 ## 2. 核心设计模式
 
-- `Strategy`
-  - 模板解析器、LLM 回退抽取器都以接口形式组织
-- `Registry`
-  - 模板注册中心负责模板识别和解析器分发
-- `Classifier`
-  - 页面分类器负责先识别站点与页面场景，再进入模板匹配
-- `Orchestrator`
-  - `HybridExtractionEngine` 负责执行流程编排
-- `Value Object`
-  - 请求、响应、模板元数据、校验报告统一建模
+### Strategy
 
-## 3. 运行流程
+不同的解析路径通过统一接口抽象：
 
-```text
-Request(url, raw_html, prompt)
-  -> HTML 预处理
-  -> 站点 / 场景分类
-  -> 意图识别
-  -> 模板匹配
-  -> 已知模板? -> 确定性解析
-       -> 校验通过 -> 返回
-       -> 校验失败 -> LLM 回退
-  -> 未知模板 -> LLM 回退
-  -> 校验
-  -> 输出结果与调试信息
-```
+- 确定性模板解析器
+- LLM 回退抽取器
 
-## 4. 模块划分
+### Registry
 
-### `models.py`
+模板注册中心负责：
 
-定义请求、响应、校验结果、字段证据等模型。
+- 管理已知模板
+- 根据分类和页面指纹匹配模板
+- 选择合适的解析器
 
-### `preprocessing.py`
+### Orchestrator
 
-负责 HTML 清洗、标题/描述提取和文本标准化。
+`HybridExtractionEngine` 负责总流程编排：
 
-### `intent.py`
+- 预处理
+- 意图识别
+- 分类
+- 模板匹配
+- 确定性解析
+- 校验
+- LLM 回退
+- 候选模板持久化
 
-负责将自然语言 prompt 解析成内部抽取意图。
+### Value Object
 
-### `classification.py`
+请求、响应、模板、规则、校验报告等统一建模，保证接口稳定。
 
-负责站点识别和页面场景识别。
+## 3. 分层结构
 
-### `fingerprinting.py`
+### controllers
 
-负责生成页面指纹，用于判断当前页面是否可以复用已固化模板。
+负责接口编排，不直接承载核心解析逻辑。
 
-### `rule_runtime.py`
+当前包括：
 
-负责执行字段规则 DSL。优先支持声明式规则：
+- `ExtractionController`
 
-- CSS selector
-- id selector
-- meta selector
-- text pattern
-- section tab
+### services
 
-对于声明式规则难以覆盖的页面，再通过代码式规则兜底。
+负责服务级逻辑和持久化协调。
 
-### `services/template_service.py`
+当前包括：
 
-负责模板 manifest 和候选模板的本地持久化。由于它们是 JSON 文件，因此可以直接迁移到其他机器使用。
+- `ExtractionService`
+- `TemplateService`
 
-### `controllers/extraction_controller.py`
+### engine
 
-负责 API / CLI 入口层的请求编排，保持 controller 与 service 分离。
+负责解析主流程，是整个系统的核心编排器。
 
-### `templates/`
+### templates
 
-存放模板解析器。当前提供：
+存放确定性模板解析器。
+
+当前包括：
 
 - `DayiDiseaseTemplateParser`
 - `DayiQATemplateParser`
+- `GenericRuleTemplateParser`
 
-### `extractors/llm.py`
+### extractors
 
-负责 LLM 回退抽取。
+存放回退抽取器。
 
-### `engine.py`
+当前主要是：
 
-负责执行编排、失败回退、置信度和最终响应组装。
+- `ScrapeGraphFallbackExtractor`
 
-### `logging_utils.py`
+### config
 
-负责控制台和文件日志初始化。
+负责路径常量和应用配置加载。
 
-## 5. 模板规则
+### docs / data / config
 
-模板规则单独放在 `config/templates/` 下。这样做的好处：
+- `config/templates/`：内置模板定义
+- `data/template_store/`：运行期已固化模板
+- `data/template_candidates/`：运行期候选模板
 
-- 规则和业务代码分离
-- 后续支持模板版本化和热更新
-- 便于引入审核流
+## 4. 运行流程
 
-此外，运行期还会用 `data/template_store/` 和 `data/template_candidates/` 来保存：
+```text
+Request(url, raw_html, user_prompt)
+  -> HTML 预处理
+  -> 意图识别
+  -> 页面分类
+  -> 页面指纹生成
+  -> 模板匹配
+      -> 命中模板 -> 确定性解析 -> 校验
+          -> 校验通过 -> 返回
+          -> 校验失败 -> LLM 回退
+      -> 未命中模板 -> LLM 回退
+  -> LLM 结果校验
+  -> 生成候选模板
+  -> 返回结果
+```
 
-- 已固化模板 manifest
-- LLM 成功回退后的候选模板
+## 5. 模板匹配机制
 
-后者用于后续人工审核和规则固化。
+模板匹配当前综合以下因素：
 
-## 6. 漂移检测
+- `site_id`
+- `scenario`
+- 页面指纹相似度
 
-MVP 中漂移检测使用轻量策略：
+如果已有模板指纹与当前页面足够接近，则优先复用该模板。
 
-- 确定性解析命中模板但缺少关键字段
-- 字段覆盖率低于阈值
-- 校验未通过
+## 6. 声明式 DSL
 
-后续可引入：
+项目当前已经支持声明式字段规则。
 
-- DOM 指纹对比
-- 模板成功率监控
-- 自动候选规则生成
-## Internal prompt contract
+字段选择器类型包括：
 
-To keep the external interface simple, the platform separates business intent from extraction constraints.
+- `css`
+- `id`
+- `meta`
+- `text_pattern`
+- `section_tab`
+- `code`
 
-The caller supplies only:
+后处理步骤包括：
 
-- `url`
-- `raw_html`
-- `user_prompt`
+- `strip`
+- `strip_cn_punctuation`
+- `split_cn_list`
+- `unique`
+- `first_non_empty_line`
 
-The system keeps its own compact prompt contract in `src/hybrid_extractor/prompts.py` for:
+这使模板可以文件化迁移，而不必完全依赖代码型解析器。
 
-- JSON-only extraction discipline
-- evidence-grounded field generation
-- intent-aware field hints
-- future template-solidification prompt generation
+## 7. LLM 提示词架构
 
-This allows prompt logic to evolve internally without changing the API contract.
+项目把提示词拆成两层：
+
+### 外层：用户业务需求
+
+调用方只需要描述：
+
+- 要抽什么
+- 结果希望是什么结构
+
+### 内层：系统提示词契约
+
+系统内部维护简洁但严格的提示词约束，用于控制：
+
+- 只输出 JSON
+- 尽量基于页面证据
+- 字段命名保持稳定
+- 为模板固化保留中间分析结果
+
+相关逻辑位于：
+
+- `src/hybrid_extractor/prompts.py`
+
+## 8. 模板固化两阶段设计
+
+当 LLM 回退成功时，系统不只保存最终 DSL，而是保存两阶段产物。
+
+### 第一阶段：analysis
+
+用于描述：
+
+- 字段值类型
+- 可能的 DOM 锚点
+- 重复区块
+- 哪些字段适合确定性抽取
+- 哪些字段仍应保留 LLM 回退
+
+### 第二阶段：proposed_plan
+
+用于描述：
+
+- 可执行的 DSL 规则
+- 适用字段
+- 后处理步骤
+
+这使后续模板审核和规则固化更可控。
+
+## 9. 配置设计
+
+### 仓库内文件
+
+- `config/app_config.template.json`
+
+### 本地文件
+
+- `config/app_config.json`
+
+真实密钥只应该放在本地配置文件或环境变量中，不应该进入版本库。
+
+当前配置加载优先级为：
+
+1. 环境变量
+2. `config/app_config.json`
+3. 代码默认值
+
+## 10. 可迁移性设计
+
+为了让这套解析能力可以迁移到别的机器上继续使用，项目把运行期产物尽量落成文件：
+
+- 模板 manifest
+- 模板候选
+- 声明式 DSL 计划
+
+后续只要复制项目代码、模板文件和本地配置，就可以在另一台机器上继续运行。

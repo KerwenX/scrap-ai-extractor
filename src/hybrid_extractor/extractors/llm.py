@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import os
-
 from scrapegraphai.graphs import DocumentScraperGraph
 from scrapegraphai.models import DeepSeek
 
-from ..config import DEFAULT_DEEPSEEK_API_KEY
+from ..config import load_app_settings
 from ..models import ExtractionIntent, ExtractionRequest, ExtractionResult
 from ..prompts import PROMPT_VERSION, build_extraction_prompt
 from .base import BaseFallbackExtractor
@@ -14,18 +12,27 @@ from .base import BaseFallbackExtractor
 class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
     def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
         prompt = build_extraction_prompt(intent)
+        settings = load_app_settings().llm
+
+        if not settings.api_key:
+            raise ValueError(
+                "未配置 LLM API Key。请在 config/app_config.json 中填写 api_key，"
+                "或设置环境变量 DEEPSEEK_API_KEY。"
+            )
 
         model = DeepSeek(
-            api_key=os.getenv("DEEPSEEK_API_KEY") or DEFAULT_DEEPSEEK_API_KEY,
-            model=os.getenv("SCRAPE_MODEL", "deepseek-v4-pro"),
-            reasoning_effort=os.getenv("DEEPSEEK_REASONING_EFFORT", "high"),
-            model_kwargs={"extra_body": {"thinking": {"type": "enabled"}}},
+            api_key=settings.api_key,
+            model=settings.model,
+            reasoning_effort=settings.reasoning_effort,
+            model_kwargs={
+                "extra_body": {"thinking": {"type": "enabled" if settings.thinking_enabled else "disabled"}}
+            },
         )
         graph = DocumentScraperGraph(
             prompt=prompt,
             source=request.raw_html,
             config={
-                "llm": {"model_instance": model, "model_tokens": 128000},
+                "llm": {"model_instance": model, "model_tokens": settings.max_tokens},
                 "metadata": {"prompt_version": PROMPT_VERSION},
             },
         )

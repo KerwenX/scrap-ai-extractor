@@ -6,8 +6,6 @@ from pathlib import Path
 
 from .config import DEFAULT_MEDICAL_PROMPT
 from .controllers import ExtractionController
-from .engine import HybridExtractionEngine
-from .models import ExtractionRequest
 
 
 def read_html_file(file_path: Path) -> str:
@@ -20,15 +18,15 @@ def read_html_file(file_path: Path) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Hybrid web extraction system")
-    parser.add_argument("--html-path", required=True, help="Local HTML file path")
-    parser.add_argument("--url", default="", help="Original page URL")
+    parser = argparse.ArgumentParser(description="混合网页解析器")
+    parser.add_argument("--html-path", required=True, help="本地 HTML 文件路径")
+    parser.add_argument("--url", default="", help="原始页面 URL")
     parser.add_argument(
         "--prompt",
         default=DEFAULT_MEDICAL_PROMPT,
-        help="Natural language extraction requirement",
+        help="自然语言抽取需求",
     )
-    parser.add_argument("--output-file", default="", help="Optional output JSON path")
+    parser.add_argument("--output-file", default="", help="可选的输出 JSON 文件路径")
     return parser
 
 
