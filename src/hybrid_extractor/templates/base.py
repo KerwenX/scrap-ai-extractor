@@ -16,6 +16,7 @@ from ..models import (
 
 class BaseTemplateParser(ABC):
     template_id: str
+    parser_key: str
     site_id: str
     site_name: str
     page_type: str

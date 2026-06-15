@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .config import DEFAULT_MEDICAL_PROMPT
+from .controllers import ExtractionController
 from .engine import HybridExtractionEngine
 from .models import ExtractionRequest
 
@@ -35,12 +36,14 @@ def main() -> None:
     args = build_parser().parse_args()
     html_path = Path(args.html_path)
     raw_html = read_html_file(html_path)
-
-    engine = HybridExtractionEngine()
-    response = engine.extract(
-        ExtractionRequest(url=args.url, raw_html=raw_html, user_prompt=args.prompt)
+    controller = ExtractionController()
+    payload = controller.extract(
+        {
+            "url": args.url,
+            "raw_html": raw_html,
+            "user_prompt": args.prompt,
+        }
     )
-    payload = response.model_dump()
     payload["source_file"] = str(html_path)
 
     content = json.dumps(payload, ensure_ascii=False, indent=2)

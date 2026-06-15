@@ -1,0 +1,24 @@
+{
+  "template_id": "dayi_qa_v1",
+  "parser_key": "builtin:dayi_qa",
+  "site_id": "dayi",
+  "site_name": "中国医药信息查询平台",
+  "page_type": "qa_page",
+  "scenario": "qa_detail",
+  "version": "v1",
+  "fingerprint": {
+    "dom_signature": "2920cc0ba9b95505",
+    "headings": [
+      "气血不足怎么调理？"
+    ],
+    "key_ids": [],
+    "key_classes": [
+      "doctor-name",
+      "qa-answer"
+    ]
+  },
+  "required_fields": [
+    "summary"
+  ],
+  "notes": "Auto-captured from a successful deterministic parsing run."
+}

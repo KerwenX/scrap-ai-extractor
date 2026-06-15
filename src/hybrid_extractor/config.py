@@ -3,6 +3,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = PROJECT_ROOT / "config"
 TEMPLATE_DIR = CONFIG_DIR / "templates"
+DATA_DIR = PROJECT_ROOT / "data"
+TEMPLATE_STORE_DIR = DATA_DIR / "template_store"
+TEMPLATE_CANDIDATE_DIR = DATA_DIR / "template_candidates"
 LOG_DIR = PROJECT_ROOT / "logs"
 
 DEFAULT_OUTPUT_PROMPT = (

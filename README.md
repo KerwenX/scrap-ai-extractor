@@ -16,6 +16,7 @@ The system focuses on large-scale parsing needs where the same site may contain 
 - Known templates use deterministic parsers first
 - Validation failures or template drift trigger LLM fallback
 - Output includes parsed data, template metadata, validation status, and debug trace
+- Successful fallback runs can persist reusable template candidates for later solidification
 
 ## Current scope
 
@@ -29,6 +30,18 @@ Current built-in site scenarios:
 
 - `dayi / disease_detail`
 - `dayi / qa_detail`
+
+## Service layout
+
+The project now separates responsibilities into:
+
+- `controllers/`: request/response orchestration
+- `services/`: template storage and extraction dispatch
+- `engine.py`: parsing workflow
+- `classification.py`: site and page-scenario recognition
+- `fingerprinting.py`: portable page signatures for template reuse
+
+This is intended to make future solidified parsing logic portable across machines by storing manifests and candidates as JSON files.
 
 ## Project layout
 
@@ -70,6 +83,22 @@ Optional file output:
 ```powershell
 hybrid-web-extractor ... --output-file result.json
 ```
+
+## Local API
+
+Start a local parsing API:
+
+```powershell
+@'
+from hybrid_extractor.api_server import run_server
+run_server()
+'@ | python -
+```
+
+Endpoints:
+
+- `POST /extract`
+- `GET /templates`
 
 ## Documents
 

@@ -21,6 +21,7 @@ from .base import BaseTemplateParser
 
 class DayiQATemplateParser(BaseTemplateParser):
     template_id = "dayi_qa_v1"
+    parser_key = "builtin:dayi_qa"
     site_id = "dayi"
     site_name = "\u4e2d\u56fd\u533b\u836f\u4fe1\u606f\u67e5\u8be2\u5e73\u53f0"
     page_type = "qa_page"

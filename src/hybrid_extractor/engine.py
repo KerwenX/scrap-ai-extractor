@@ -4,10 +4,12 @@ from typing import Iterable, Optional
 
 from .classification import PageClassifier
 from .extractors import BaseFallbackExtractor, ScrapeGraphFallbackExtractor
+from .fingerprinting import build_fingerprint
 from .intent import parse_intent
 from .logging_utils import get_logger
-from .models import ExtractionRequest, ExtractionResponse
+from .models import ExtractionRequest, ExtractionResponse, TemplateCandidate, TemplateManifest
 from .preprocessing import build_soup, clean_html, extract_page_title
+from .services.template_service import TemplateService
 from .template_registry import TemplateRegistry
 from .validation import validate_data
 
@@ -18,8 +20,10 @@ class HybridExtractionEngine:
         registry: Optional[TemplateRegistry] = None,
         fallback_extractor: Optional[BaseFallbackExtractor] = None,
         classifier: Optional[PageClassifier] = None,
+        template_service: Optional[TemplateService] = None,
     ) -> None:
-        self.registry = registry or TemplateRegistry()
+        self.template_service = template_service or TemplateService()
+        self.registry = registry or TemplateRegistry(template_service=self.template_service)
         self.fallback_extractor = fallback_extractor or ScrapeGraphFallbackExtractor()
         self.classifier = classifier or PageClassifier()
         self.logger = get_logger(self.__class__.__name__)
@@ -34,11 +38,15 @@ class HybridExtractionEngine:
         title = extract_page_title(soup)
         intent = parse_intent(request.user_prompt)
         classification = self.classifier.classify(request, soup)
+        fingerprint = build_fingerprint(soup)
 
-        match, parser = self.registry.match(request, soup, title, classification)
+        match, parser = self.registry.match(
+            request, soup, title, classification, fingerprint=fingerprint
+        )
         debug_trace = {
             "page_title": title,
             "classification": classification.model_dump(),
+            "fingerprint": fingerprint.model_dump(),
             "template_match": match.model_dump() if match else None,
             "intent": intent.model_dump(),
         }
@@ -55,6 +63,24 @@ class HybridExtractionEngine:
             debug_trace["deterministic_validation"] = validation.model_dump()
 
             if validation.passed:
+                stored_manifest_path = None
+                existing_manifest = self.template_service.get_manifest(match.template_id)
+                if existing_manifest is None or existing_manifest.fingerprint is None:
+                    manifest = TemplateManifest(
+                        template_id=match.template_id,
+                        parser_key=parser.parser_key,
+                        site_id=match.site_id,
+                        site_name=match.site_name,
+                        page_type=match.page_type,
+                        scenario=match.scenario,
+                        version=match.version,
+                        fingerprint=fingerprint,
+                        required_fields=list(required_fields),
+                        notes="Auto-captured from a successful deterministic parsing run.",
+                    )
+                    stored_manifest_path = str(self.template_service.upsert_manifest(manifest))
+                    debug_trace["template_manifest_path"] = stored_manifest_path
+
                 self.logger.info("Deterministic parsing passed validation", extra=logger_extra)
                 return ExtractionResponse(
                     request_id=request.request_id,
@@ -78,6 +104,23 @@ class HybridExtractionEngine:
         llm_result = self.fallback_extractor.extract(request, intent)
         llm_validation = validate_data(llm_result.data, required_fields)
         debug_trace["llm_validation"] = llm_validation.model_dump()
+        candidate_path = None
+
+        if llm_validation.passed:
+            candidate = TemplateCandidate(
+                request_id=request.request_id,
+                site_id=classification.site_id,
+                site_name=classification.site_name,
+                page_type=classification.page_type,
+                scenario=classification.scenario,
+                user_prompt=request.user_prompt,
+                source_url=request.url,
+                fingerprint=fingerprint,
+                extracted_fields=sorted(llm_result.data.keys()),
+                sample_data=dict(list(llm_result.data.items())[:8]),
+            )
+            candidate_path = str(self.template_service.persist_candidate(candidate))
+            debug_trace["template_candidate_path"] = candidate_path
 
         status = "success" if llm_validation.passed else "failed"
         extractor_type = "hybrid" if parser and match else "llm"

@@ -30,6 +30,7 @@ PREVENTION = "\u9884\u9632"
 
 class DayiDiseaseTemplateParser(BaseTemplateParser):
     template_id = "dayi_disease_v1"
+    parser_key = "builtin:dayi_disease"
     site_id = "dayi"
     site_name = "\u4e2d\u56fd\u533b\u836f\u4fe1\u606f\u67e5\u8be2\u5e73\u53f0"
     page_type = "disease_page"

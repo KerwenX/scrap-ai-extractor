@@ -58,6 +58,18 @@ Request(url, raw_html, prompt)
 
 负责站点识别和页面场景识别。
 
+### `fingerprinting.py`
+
+负责生成页面指纹，用于判断当前页面是否可以复用已固化模板。
+
+### `services/template_service.py`
+
+负责模板 manifest 和候选模板的本地持久化。由于它们是 JSON 文件，因此可以直接迁移到其他机器使用。
+
+### `controllers/extraction_controller.py`
+
+负责 API / CLI 入口层的请求编排，保持 controller 与 service 分离。
+
 ### `templates/`
 
 存放模板解析器。当前提供：
@@ -84,6 +96,13 @@ Request(url, raw_html, prompt)
 - 规则和业务代码分离
 - 后续支持模板版本化和热更新
 - 便于引入审核流
+
+此外，运行期还会用 `data/template_store/` 和 `data/template_candidates/` 来保存：
+
+- 已固化模板 manifest
+- LLM 成功回退后的候选模板
+
+后者用于后续人工审核和规则固化。
 
 ## 6. 漂移检测
 

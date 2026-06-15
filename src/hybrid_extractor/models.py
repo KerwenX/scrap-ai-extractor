@@ -27,6 +27,13 @@ class PageClassification(BaseModel):
     signals: List[str] = Field(default_factory=list)
 
 
+class PageFingerprint(BaseModel):
+    dom_signature: str
+    headings: List[str] = Field(default_factory=list)
+    key_ids: List[str] = Field(default_factory=list)
+    key_classes: List[str] = Field(default_factory=list)
+
+
 class ValidationIssue(BaseModel):
     field: str
     issue_type: str
@@ -59,6 +66,33 @@ class TemplateMatch(BaseModel):
     page_type: str
     scenario: str
     version: str = "v1"
+
+
+class TemplateManifest(BaseModel):
+    template_id: str
+    parser_key: str
+    site_id: str
+    site_name: str
+    page_type: str
+    scenario: str
+    version: str = "v1"
+    fingerprint: Optional[PageFingerprint] = None
+    required_fields: List[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class TemplateCandidate(BaseModel):
+    candidate_id: str = Field(default_factory=lambda: str(uuid4()))
+    request_id: str
+    site_id: str
+    site_name: str
+    page_type: str
+    scenario: str
+    user_prompt: str
+    source_url: str = ""
+    fingerprint: PageFingerprint
+    extracted_fields: List[str] = Field(default_factory=list)
+    sample_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtractionResponse(BaseModel):
