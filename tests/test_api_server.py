@@ -7,7 +7,13 @@ from tempfile import TemporaryDirectory
 
 from hybrid_extractor.api_server import ApiHandler, ThreadingHTTPServer
 from hybrid_extractor.controllers import ExtractionController
-from hybrid_extractor.models import ExtractionPlan, FieldRule, FieldSelectorRule, PageFingerprint, TemplateCandidate
+from hybrid_extractor.models import (
+    ExtractionPlan,
+    FieldRule,
+    FieldSelectorRule,
+    PageFingerprint,
+    TemplateCandidate,
+)
 from hybrid_extractor.services.template_service import TemplateService
 
 
@@ -27,7 +33,12 @@ def test_api_server_health_and_validation_responses():
             scenario="article_detail",
             user_prompt="提取标题和摘要",
             source_url="https://example.com/paper/1",
-            fingerprint=PageFingerprint(dom_signature="abc123", headings=["Title"], key_ids=[], key_classes=[]),
+            fingerprint=PageFingerprint(
+                dom_signature="abc123",
+                headings=["Title"],
+                key_ids=[],
+                key_classes=[],
+            ),
             extracted_fields=["title"],
             sample_data={"title": "Paper title"},
             proposed_plan=ExtractionPlan(
@@ -57,7 +68,7 @@ def test_api_server_health_and_validation_responses():
 
             with urllib.request.urlopen(f"{base_url}/") as response:
                 html = response.read().decode("utf-8")
-                assert "<title>" in html
+                assert "<title>混合网页解析器</title>" in html
 
             with urllib.request.urlopen(f"{base_url}/templates") as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -69,7 +80,10 @@ def test_api_server_health_and_validation_responses():
 
             with urllib.request.urlopen(f"{base_url}/template-candidates") as response:
                 payload = json.loads(response.read().decode("utf-8"))
-                assert any(item["candidate_id"] == candidate.candidate_id for item in payload["candidates"])
+                assert any(
+                    item["candidate_id"] == candidate.candidate_id
+                    for item in payload["candidates"]
+                )
 
             toggle_request = urllib.request.Request(
                 f"{base_url}/templates/{manifest.template_id}/deactivate",

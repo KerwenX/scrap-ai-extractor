@@ -9,8 +9,6 @@ from .models import ExtractionRequest, PageClassification, TemplateMatch
 from .services.template_service import TemplateService
 from .templates import (
     BaseTemplateParser,
-    DayiDiseaseTemplateParser,
-    DayiQATemplateParser,
     GenericRuleTemplateParser,
 )
 
@@ -18,10 +16,7 @@ from .templates import (
 class TemplateRegistry:
     def __init__(self, template_service: TemplateService | None = None) -> None:
         self.template_service = template_service or TemplateService()
-        self.parsers: list[BaseTemplateParser] = [
-            DayiDiseaseTemplateParser(),
-            DayiQATemplateParser(),
-        ]
+        self.parsers: list[BaseTemplateParser] = []
         self.parsers_by_key = {parser.parser_key: parser for parser in self.parsers}
 
     def match(

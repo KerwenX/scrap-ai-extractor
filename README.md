@@ -1,72 +1,67 @@
 # 混合网页解析器
 
-这是一个只专注于“网页解析”的项目，不负责爬虫抓取。
+这是一个只专注于网页解析的项目，不负责爬虫抓取。
 
-它的输入是：
+系统输入：
 
 - `url`
 - `raw_html`
 - `user_prompt`
 
-它的输出是：
+系统输出：
 
 - 结构化抽取结果
-- 命中的模板信息
+- 命中的正式模板信息
 - 校验结果
 - 调试链路信息
 
-项目的核心目标是支持两类解析路径：
+核心目标：
 
-- 首次遇到的页面模板，优先走 LLM 理解和抽取
-- 已经识别并固化过的页面模板，优先走确定性解析规则
+- 首次遇到的网页模板，优先走 LLM 理解、字段识别和抽取。
+- 已识别并固化的网页模板，优先走正式模板 JSON + DSL 的确定性解析。
+- 当模板失效、字段缺失或校验失败时，自动回退到 LLM，并沉淀新的候选模板。
 
-当确定性解析失败、字段缺失、校验不通过或模板发生漂移时，系统会自动回退到 LLM 抽取。
+## 当前特性
 
-## 适用场景
-
-- 你已经拿到了网页源码，希望做结构化解析
-- 同一个站点下有很多不同页面类型，希望后续逐步固化模板
-- 希望把解析服务迁移到别的机器继续使用
-
-当前内置了两个中国医药信息查询平台页面模板：
-
-- `dayi / disease_detail`
-- `dayi / qa_detail`
+- 不依赖爬虫，只处理你已经拿到的网页源码。
+- 支持用户通过自然语言定义抽取目标。
+- 正式模板优先，LLM 兜底。
+- 首次 LLM 成功抽取后，自动生成候选模板。
+- 候选模板保留两阶段中间结果：
+  - `analysis`
+  - `proposed_plan`
+- 成功固化后，下一次相同模板页面可以直接命中正式模板。
+- 提供本地 Web UI，可直接测试抽取、查看模板、查看候选模板、启停模板。
 
 ## 项目结构
 
 ```text
 config/
   app_config.template.json     配置模板
-  templates/                   已固化模板元数据
+  templates/                   内置正式模板
 docs/
   requirements.md              中文需求文档
   architecture.md              中文架构设计
 src/hybrid_extractor/
-  controllers/                 接口编排层
+  controllers/                 接口编排
   services/                    服务层
-  templates/                   内置模板解析器
   extractors/                  LLM 回退抽取器
+  templates/                   模板适配器
   engine.py                    解析主流程
+  rule_runtime.py              DSL 运行时
+  web_ui.py                    本地 Web UI
 tests/                         自动化测试
 local_medical_html_extraction.py
 ```
 
 ## 安装
 
-先进入项目根目录：
-
 ```powershell
 cd G:\code\Extractor\scrap-ai-extractor
-```
-
-安装运行依赖：
-
-```powershell
 pip install -e .
 ```
 
-如果你还要跑测试：
+如果还要运行测试：
 
 ```powershell
 pip install -e .[dev]
@@ -74,17 +69,13 @@ pip install -e .[dev]
 
 ## 配置
 
-仓库里只保留模板配置文件，不保留真实密钥。
-
-你需要先复制一份本地配置：
+先复制配置模板：
 
 ```powershell
 Copy-Item .\config\app_config.template.json .\config\app_config.json
 ```
 
-然后编辑 `config/app_config.json`，填入你自己的 `DeepSeek API Key`。
-
-示例：
+然后编辑 `config/app_config.json`：
 
 ```json
 {
@@ -102,30 +93,25 @@ Copy-Item .\config\app_config.template.json .\config\app_config.json
 
 说明：
 
-- `config/app_config.json` 已加入 `.gitignore`，不会被提交到 GitHub
-- 当前 `ScrapeGraphAI` 的 `DeepSeek` 封装内部固定使用官方地址，`base_url` 先保留在配置里做兼容字段
-- 如果你设置了环境变量 `DEEPSEEK_API_KEY`，它会覆盖配置文件中的 `api_key`
+- `config/app_config.json` 已加入 `.gitignore`。
+- 如果设置了 `DEEPSEEK_API_KEY` 环境变量，它会覆盖配置文件中的 `api_key`。
 
-## 怎么使用
+## 使用方式
 
 ### 1. 直接解析本地 HTML
 
-这是你现在最直接的使用方式。
-
 ```powershell
 python .\local_medical_html_extraction.py `
-  --html-path "E:\Documents\Downloads\气血不足的病因_气血不足的症状_气血不足怎么治疗_气血不足的注意事项_中国医药信息查询平台.html" `
-  --url "https://www.dayi.org.cn/symptom/xxx" `
-  --prompt "提取疾病基本信息、病因、症状、诊断、治疗、日常注意事项和预防"
+  --html-path "E:\Documents\Downloads\页面.html" `
+  --url "https://example.com/page" `
+  --prompt "提取页面中与用户需求最相关的结构化信息"
 ```
 
-如果不传 `--prompt`，默认会使用医疗疾病页抽取提示。
-
-如果想把结果保存到文件：
+保存结果：
 
 ```powershell
 python .\local_medical_html_extraction.py `
-  --html-path "E:\Documents\Downloads\气血不足的病因_气血不足的症状_气血不足怎么治疗_气血不足的注意事项_中国医药信息查询平台.html" `
+  --html-path "E:\Documents\Downloads\页面.html" `
   --output-file ".\result.json"
 ```
 
@@ -133,14 +119,12 @@ python .\local_medical_html_extraction.py `
 
 ```powershell
 hybrid-web-extractor `
-  --html-path "E:\Documents\Downloads\气血不足的病因_气血不足的症状_气血不足怎么治疗_气血不足的注意事项_中国医药信息查询平台.html" `
-  --url "https://www.dayi.org.cn/symptom/xxx" `
-  --prompt "提取疾病基本信息、病因、症状、诊断、治疗、日常注意事项和预防"
+  --html-path "E:\Documents\Downloads\页面.html" `
+  --url "https://example.com/page" `
+  --prompt "提取页面中的标题、摘要、作者、发布时间和正文要点"
 ```
 
-### 3. 作为本地 API 服务使用
-
-启动服务：
+### 3. 启动本地 API 服务
 
 ```powershell
 @'
@@ -149,29 +133,37 @@ run_server()
 '@ | python -
 ```
 
-默认监听地址：
+默认地址：
 
 - `http://127.0.0.1:8000`
 
-启动后，直接在浏览器打开：
+本地 Web UI：
 
 - `http://127.0.0.1:8000/`
 
-即可使用内置的简洁网页界面，填写 URL、Prompt 和 HTML 源码后直接发起解析。
+## API
 
-可用接口：
+核心接口：
 
 - `POST /extract`
-- `GET /templates`
 - `GET /health`
 
-示例请求：
+模板管理接口：
+
+- `GET /templates`
+- `GET /templates/{template_id}`
+- `POST /templates/{template_id}/activate`
+- `POST /templates/{template_id}/deactivate`
+- `GET /template-candidates`
+- `GET /template-candidates/{candidate_id}`
+
+### `POST /extract` 示例
 
 ```powershell
 $body = @{
-  url = "https://www.dayi.org.cn/symptom/xxx"
-  raw_html = [System.IO.File]::ReadAllText("E:\Documents\Downloads\气血不足的病因_气血不足的症状_气血不足怎么治疗_气血不足的注意事项_中国医药信息查询平台.html")
-  user_prompt = "提取疾病基本信息、病因、症状、诊断、治疗、日常注意事项和预防"
+  url = "https://example.com/page"
+  raw_html = [System.IO.File]::ReadAllText("E:\Documents\Downloads\页面.html")
+  user_prompt = "提取页面中的标题、摘要、作者、发布时间和正文要点"
 } | ConvertTo-Json -Depth 10
 
 Invoke-RestMethod `
@@ -181,62 +173,45 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-查看当前已加载模板：
+## 输出结果说明
 
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/templates" -Method Get
-```
+关键字段：
 
-## 输出结果怎么看
-
-返回结果里比较重要的字段有：
-
-- `data`：真正的结构化结果
+- `data`：结构化结果
 - `template_id`：命中的模板 ID
 - `extractor_type`：`deterministic`、`llm` 或 `hybrid`
 - `validation_report`：字段覆盖率和校验结果
-- `debug_trace`：分类结果、指纹、模板匹配和提示词版本等调试信息
+- `debug_trace`：分类结果、指纹、模板匹配和调试信息
 
-如果是未知模板且 LLM 回退成功，系统会额外产出候选模板文件：
+如果是未知模板且 LLM 回退成功，会产出候选模板文件：
 
 - `data/template_candidates/`
 
-候选模板里当前会保留两阶段中间结果：
-
-- `analysis`：字段锚点、字段形态、可确定性分析
-- `proposed_plan`：根据分析生成的 DSL 规则计划
-
-如果是已知模板且解析成功，系统会更新或保存模板清单：
+如果候选模板满足固化条件，会自动生成正式模板：
 
 - `data/template_store/`
 
-## 当前实现说明
+## 当前实现策略
 
-### 内部提示词策略
+提示词分层：
 
-系统把提示词分成两层：
+- 用户提示词只关注业务目标。
+- 系统内部提示词只负责输出约束、字段稳定性和模板固化约束。
 
-- 用户提示词：只关注业务目标
-- 系统内部提示词：只负责输出约束、字段稳定性、证据约束和模板固化约束
-
-这样做的目的是：
-
-- 让调用方接口保持稳定
-- 后续可以独立升级内部提示词
-- 方便把模板固化能力逐步做强
-
-### 模板固化的两阶段设计
-
-当前运行时模板固化采用两阶段：
+模板固化两阶段：
 
 1. 先做模板分析
 2. 再生成 DSL 计划
 
-第一版里这两个阶段已经有明确的数据结构和持久化格式，后面可以继续接入真正的 `LLM analysis -> LLM DSL synthesis`。
+主路径策略：
+
+- 正式模板 manifest 命中
+- `GenericRuleTemplateParser` 执行 DSL
+- 校验失败时回退到 LLM
+
+legacy 手写站点 parser 不再参与默认匹配主路径。
 
 ## 测试
-
-运行测试：
 
 ```powershell
 pytest -q

@@ -62,3 +62,34 @@ def test_dayi_qa_template_is_loaded_from_manifest_and_extracts():
     result = parser.extract(request, soup, None)
     assert "规律作息" in result.data["summary"]
     assert result.data["question"] == "气血不足怎么调理？"
+
+
+def test_inactive_manifest_is_not_matched(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    html = Path("tests/fixtures/dayi_disease_sample.html").read_text(encoding="utf-8")
+    request = ExtractionRequest(
+        url="https://www.dayi.org.cn/symptom/123.html",
+        raw_html=html,
+        user_prompt="提取疾病基本信息",
+    )
+    builtin_manifest = TemplateService().get_manifest("dayi_disease_v1")
+    assert builtin_manifest is not None
+    service.upsert_manifest(builtin_manifest.model_copy(update={"active": False}))
+
+    soup = build_soup(html)
+    classification = PageClassifier().classify(request, soup)
+    registry = TemplateRegistry(template_service=service)
+
+    match, parser = registry.match(
+        request,
+        soup,
+        extract_page_title(soup),
+        classification,
+        fingerprint=None,
+    )
+    assert match is None
+    assert parser is None
