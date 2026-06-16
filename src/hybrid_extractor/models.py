@@ -122,6 +122,7 @@ class TemplateManifest(BaseModel):
     page_type: str
     scenario: str
     version: str = "v1"
+    active: bool = True
     fingerprint: Optional[PageFingerprint] = None
     required_fields: List[str] = Field(default_factory=list)
     extraction_plan: Optional[ExtractionPlan] = None

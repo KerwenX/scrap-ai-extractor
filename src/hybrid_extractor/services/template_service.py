@@ -33,11 +33,27 @@ class TemplateService:
                 manifests.append(TemplateManifest.model_validate(data))
         return manifests
 
+    def load_candidates(self) -> List[TemplateCandidate]:
+        candidates: list[TemplateCandidate] = []
+        if not self.template_candidate_dir.exists():
+            return candidates
+        for path in sorted(self.template_candidate_dir.glob("*.json")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            candidates.append(TemplateCandidate.model_validate(data))
+        return candidates
+
     def get_manifest(self, template_id: str) -> Optional[TemplateManifest]:
         for manifest in self.load_manifests():
             if manifest.template_id == template_id:
                 return manifest
         return None
+
+    def get_candidate(self, candidate_id: str) -> Optional[TemplateCandidate]:
+        path = self.template_candidate_dir / f"{candidate_id}.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return TemplateCandidate.model_validate(data)
 
     def upsert_manifest(self, manifest: TemplateManifest) -> Path:
         path = self.template_store_dir / f"{manifest.template_id}.json"
@@ -51,6 +67,14 @@ class TemplateService:
         path = self.template_candidate_dir / f"{candidate.candidate_id}.json"
         path.write_text(candidate.model_dump_json(indent=2), encoding="utf-8")
         return path
+
+    def set_manifest_active(self, template_id: str, active: bool) -> Optional[TemplateManifest]:
+        manifest = self.get_manifest(template_id)
+        if manifest is None:
+            return None
+        updated = manifest.model_copy(update={"active": active})
+        self.upsert_manifest(updated)
+        return updated
 
     def solidify_candidate(
         self,
@@ -83,6 +107,7 @@ class TemplateService:
             page_type=candidate.page_type,
             scenario=candidate.scenario,
             version="v1",
+            active=True,
             fingerprint=candidate.fingerprint,
             required_fields=required_fields,
             extraction_plan=candidate.proposed_plan,
