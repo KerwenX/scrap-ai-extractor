@@ -20,30 +20,6 @@ SYSTEM_TEMPLATE_ANALYSIS_PROMPT = (
     "sections, and which fields can or cannot be extracted deterministically."
 )
 
-DISEASE_FIELD_HINTS = [
-    "name",
-    "summary",
-    "aliases",
-    "susceptible_population",
-    "transmission",
-    "departments",
-    "causes",
-    "symptoms",
-    "diagnosis",
-    "treatment",
-    "nursing_and_precautions",
-    "prevention",
-    "sections",
-]
-
-QA_FIELD_HINTS = [
-    "title",
-    "question",
-    "answer",
-    "summary",
-    "sections",
-]
-
 
 def build_extraction_prompt(intent: ExtractionIntent) -> str:
     field_hints = _field_hints(intent)
@@ -57,7 +33,9 @@ def build_extraction_prompt(intent: ExtractionIntent) -> str:
         "2. Use the page's explicit content as evidence; omit unsupported fields.\n"
         "3. Prefer strings for scalar facts and arrays for repeated items.\n"
         "4. Normalize obvious boilerplate, but preserve domain meaning.\n"
-        "5. If a section exists but content is sparse, keep the field concise rather than guessing.\n\n"
+        "5. If a section exists but content is sparse, keep the field concise rather than guessing.\n"
+        "6. When the page has distinguishable metadata or sections, prefer multiple meaningful fields "
+        "instead of a single catch-all field such as content or result.\n\n"
         "[field-hints]\n"
         f"Preferred fields: {hint_text}.\n\n"
         "[user-requirement]\n"
@@ -98,8 +76,4 @@ def build_template_analysis_prompt(user_prompt: str, extracted_fields: list[str]
 
 
 def _field_hints(intent: ExtractionIntent) -> list[str]:
-    if intent.entity_type == "disease_page":
-        return DISEASE_FIELD_HINTS
-    if intent.entity_type == "qa_page":
-        return QA_FIELD_HINTS
-    return []
+    return intent.requested_capabilities

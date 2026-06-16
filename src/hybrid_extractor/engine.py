@@ -19,7 +19,7 @@ from .models import (
     TemplateFieldAnalysis,
     TemplateManifest,
 )
-from .preprocessing import build_soup, clean_html, extract_page_title
+from .preprocessing import build_soup, clean_html, extract_page_title, normalize_text
 from .prompts import (
     PROMPT_VERSION,
     build_template_analysis_prompt,
@@ -68,7 +68,7 @@ class HybridExtractionEngine:
             "prompt_version": PROMPT_VERSION,
         }
 
-        required_fields = self._required_fields(intent)
+        required_fields = self._required_fields(match)
         drift_detected = False
 
         if parser and match:
@@ -188,51 +188,40 @@ class HybridExtractionEngine:
             debug_trace=debug_trace,
         )
 
-    def _required_fields(self, intent) -> Iterable[str]:
-        if intent.entity_type == "disease_page":
-            return ["name", "summary", "symptoms", "treatment"]
-        if intent.entity_type == "qa_page":
-            return ["summary"]
-        return ["result"]
+    def _required_fields(self, match) -> Iterable[str]:
+        if not match:
+            return []
+        manifest = self.template_service.get_manifest(match.template_id)
+        if manifest is None:
+            return []
+        return manifest.required_fields
 
     def _build_candidate_analysis(self, soup, data: dict) -> TemplateAnalysis | None:
         if not data:
             return None
 
-        visible_text = soup.get_text(" ", strip=True)
         page_cues: list[str] = []
         if soup.find("h1"):
             page_cues.append("page has h1 heading")
         if soup.find("meta", attrs={"name": "description"}):
             page_cues.append("page has description meta")
+        if len(self._build_section_tab_map(soup)) >= 2:
+            page_cues.append("page has tabbed sections")
+        if len(soup.find_all(["h2", "h3"])) >= 2:
+            page_cues.append("page has repeated section headings")
 
         field_analyses: list[TemplateFieldAnalysis] = []
         fallback_fields: list[str] = []
-        section_names = {
-            "causes": "\u75c5\u56e0",
-            "symptoms": "\u75c7\u72b6",
-            "diagnosis": "\u8bca\u65ad",
-            "treatment": "\u6cbb\u7597",
-            "prevention": "\u9884\u9632",
-        }
 
         for field_name, value in data.items():
-            likely_anchors: list[str] = []
-            feasibility = "low"
-
-            if field_name == "name" and soup.find("h1"):
-                likely_anchors.append("h1")
+            selector_candidates = self._infer_selector_candidates(soup, value)
+            likely_anchors = [f"{rule.kind}:{rule.value}" for rule in selector_candidates]
+            if likely_anchors:
                 feasibility = "high"
-            elif field_name == "summary" and soup.find("meta", attrs={"name": "description"}):
-                likely_anchors.append("meta[name=description]")
-                feasibility = "high"
-            elif field_name in section_names and section_names[field_name] in visible_text:
-                likely_anchors.append(f"section_tab:{section_names[field_name]}")
-                feasibility = "high"
-            elif field_name == "sections":
-                likely_anchors.append("repeated content sections")
+            elif isinstance(value, list) and value:
                 feasibility = "medium"
             else:
+                feasibility = "low"
                 fallback_fields.append(field_name)
 
             field_analyses.append(
@@ -243,7 +232,7 @@ class HybridExtractionEngine:
                     extraction_notes=(
                         "deterministic anchor available"
                         if likely_anchors
-                        else "no stable deterministic anchor identified in heuristic phase"
+                        else "no stable deterministic anchor identified in generic heuristic phase"
                     ),
                     deterministic_feasibility=feasibility,
                 )
@@ -263,43 +252,13 @@ class HybridExtractionEngine:
             return None
         field_rules: list[FieldRule] = []
 
-        if "name" in data and soup.find("h1"):
-            field_rules.append(
-                FieldRule(
-                    field_name="name",
-                    selectors=[FieldSelectorRule(kind="css", value="h1")],
-                    postprocess=[PostProcessStep(op="strip")],
-                )
-            )
-
-        if "summary" in data and soup.find("meta", attrs={"name": "description"}):
-            field_rules.append(
-                FieldRule(
-                    field_name="summary",
-                    selectors=[FieldSelectorRule(kind="meta", value="description")],
-                    postprocess=[PostProcessStep(op="strip")],
-                )
-            )
-
-        section_names = {
-            "causes": "\u75c5\u56e0",
-            "symptoms": "\u75c7\u72b6",
-            "diagnosis": "\u8bca\u65ad",
-            "treatment": "\u6cbb\u7597",
-            "prevention": "\u9884\u9632",
-        }
-        tab_text = soup.get_text(" ", strip=True)
-        for field_name, section_title in section_names.items():
-            if field_name not in data:
+        for field_name, value in data.items():
+            selectors = self._infer_selector_candidates(soup, value)
+            if not selectors:
                 continue
-            if section_title not in tab_text:
-                continue
+            postprocess = [PostProcessStep(op="strip")]
             field_rules.append(
-                FieldRule(
-                    field_name=field_name,
-                    selectors=[FieldSelectorRule(kind="section_tab", value=section_title)],
-                    postprocess=[PostProcessStep(op="strip")],
-                )
+                FieldRule(field_name=field_name, selectors=selectors, postprocess=postprocess)
             )
 
         if analysis:
@@ -323,3 +282,89 @@ class HybridExtractionEngine:
         if isinstance(value, dict):
             return "object"
         return "unknown"
+
+    def _infer_selector_candidates(self, soup, value) -> list[FieldSelectorRule]:
+        selector = self._infer_single_selector(soup, value)
+        return [selector] if selector else []
+
+    def _infer_single_selector(self, soup, value) -> FieldSelectorRule | None:
+        scalar = self._to_scalar_text(value)
+        if not scalar:
+            return None
+
+        h1 = soup.find("h1")
+        if h1 and normalize_text(h1.get_text(" ", strip=True)) == scalar:
+            return FieldSelectorRule(kind="css", value="h1")
+
+        meta_description = soup.find("meta", attrs={"name": "description"})
+        if meta_description and normalize_text(meta_description.get("content", "")) == scalar:
+            return FieldSelectorRule(kind="meta", value="description")
+
+        tab_title = self._match_tabbed_section(soup, scalar)
+        if tab_title:
+            return FieldSelectorRule(kind="section_tab", value=tab_title)
+
+        node = self._find_text_node(soup, scalar)
+        if node is None:
+            return None
+
+        if node.get("id"):
+            return FieldSelectorRule(kind="id", value=node.get("id"))
+
+        selector = self._build_css_selector(node, soup)
+        if selector:
+            return FieldSelectorRule(kind="css", value=selector)
+        return None
+
+    def _to_scalar_text(self, value) -> str:
+        if isinstance(value, str):
+            return normalize_text(value)
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
+            return normalize_text(value[0])
+        return ""
+
+    def _match_tabbed_section(self, soup, scalar: str) -> str | None:
+        tab_map = self._build_section_tab_map(soup)
+        for title, content in tab_map.items():
+            if normalize_text(content) == scalar:
+                return title
+        return None
+
+    def _build_section_tab_map(self, soup) -> dict[str, str]:
+        tabs = []
+        for node in soup.select("[role='tab']"):
+            text_node = node.select_one(".van-tab__text")
+            text = normalize_text((text_node or node).get_text(" ", strip=True))
+            if text:
+                tabs.append(text)
+        panes = soup.select(".van-tab__pane-wrapper .van-tab__pane, .van-tab__pane")
+        result: dict[str, str] = {}
+        for tab, pane in zip(tabs, panes):
+            result[tab] = normalize_text(pane.get_text("\n", strip=True))
+        return result
+
+    def _find_text_node(self, soup, scalar: str):
+        candidates = []
+        for node in soup.find_all(True)[:400]:
+            text = normalize_text(node.get_text(" ", strip=True))
+            if not text:
+                continue
+            if text == scalar:
+                candidates.append((0, node))
+            elif scalar in text and len(text) <= len(scalar) * 2:
+                candidates.append((1, node))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], len(item[1].get_text(" ", strip=True))))
+        return candidates[0][1]
+
+    def _build_css_selector(self, node, soup) -> str:
+        if node.get("class"):
+            classes = [class_name for class_name in node.get("class", []) if class_name]
+            if classes:
+                selector = f"{node.name}." + ".".join(classes[:2])
+                if len(soup.select(selector)) == 1:
+                    return selector
+        if node.name and len(soup.select(node.name)) == 1:
+            return node.name
+        return ""

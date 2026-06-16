@@ -19,6 +19,30 @@ class FakeFallbackExtractor(BaseFallbackExtractor):
         )
 
 
+class GenericFallbackExtractor(BaseFallbackExtractor):
+    def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
+        return ExtractionResult(
+            data={
+                "title": "论文标题",
+                "content": "这是一个通用抽取结果",
+            }
+        )
+
+
+class SolidifyingFallbackExtractor(BaseFallbackExtractor):
+    def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
+        return ExtractionResult(
+            data={
+                "name": "自定义病名",
+                "summary": "这是页面摘要",
+                "causes": "病因内容",
+                "symptoms": "症状内容",
+                "diagnosis": "诊断内容",
+                "treatment": "治疗内容",
+            }
+        )
+
+
 def test_engine_uses_deterministic_parser_for_known_template():
     html = Path("tests/fixtures/dayi_disease_sample.html").read_text(encoding="utf-8")
     engine = HybridExtractionEngine(fallback_extractor=FakeFallbackExtractor())
@@ -89,7 +113,7 @@ def test_engine_auto_solidifies_and_reuses_manifest(tmp_path):
         template_candidate_dir=tmp_path / "template_candidates",
     )
     engine = HybridExtractionEngine(
-        fallback_extractor=FakeFallbackExtractor(),
+        fallback_extractor=SolidifyingFallbackExtractor(),
         template_service=service,
     )
     request = ExtractionRequest(
@@ -125,3 +149,17 @@ def test_engine_uses_deterministic_parser_for_known_qa_template():
     assert response.extractor_type == "deterministic"
     assert response.template_id == "dayi_qa_v1"
     assert "\u89c4\u5f8b\u4f5c\u606f" in response.data["summary"]
+
+
+def test_engine_allows_generic_unknown_page_without_fixed_required_fields():
+    html = "<html><head><title>Article</title></head><body><h1>Paper</h1></body></html>"
+    engine = HybridExtractionEngine(fallback_extractor=GenericFallbackExtractor())
+    request = ExtractionRequest(
+        url="https://example.com/article/1",
+        raw_html=html,
+        user_prompt="这是一个论文网页，提取页面有关的所有信息",
+    )
+    response = engine.extract(request)
+    assert response.status == "success"
+    assert response.extractor_type == "llm"
+    assert response.data["title"] == "论文标题"

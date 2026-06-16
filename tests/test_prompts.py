@@ -8,13 +8,13 @@ from hybrid_extractor.prompts import (
 
 def test_build_extraction_prompt_includes_contract_and_user_requirement():
     intent = ExtractionIntent(
-        entity_type="disease_page",
-        requested_capabilities=["symptoms"],
+        entity_type=None,
+        requested_capabilities=["title", "summary", "authors"],
         normalized_prompt="\u63d0\u53d6\u75be\u75c5\u75c7\u72b6\u548c\u6cbb\u7597",
     )
     prompt = build_extraction_prompt(intent)
     assert "Return valid JSON only" in prompt
-    assert "name, summary, aliases" in prompt
+    assert "title, summary, authors" in prompt
     assert "\u63d0\u53d6\u75be\u75c5\u75c7\u72b6\u548c\u6cbb\u7597" in prompt
 
 

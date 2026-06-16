@@ -20,6 +20,22 @@ def validate_data(data: Dict[str, Any], required_fields: Iterable[str]) -> Valid
     issues: list[ValidationIssue] = []
     hit_count = 0
 
+    if not required:
+        has_any_value = any(_has_value(value) for value in data.values())
+        if has_any_value:
+            return ValidationReport(passed=True, coverage=1.0, issues=[])
+        return ValidationReport(
+            passed=False,
+            coverage=0.0,
+            issues=[
+                ValidationIssue(
+                    field="data",
+                    issue_type="empty",
+                    message="Extraction result is empty.",
+                )
+            ],
+        )
+
     for field in required:
         if _has_value(data.get(field)):
             hit_count += 1

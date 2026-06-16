@@ -153,10 +153,17 @@ run_server()
 
 - `http://127.0.0.1:8000`
 
+启动后，直接在浏览器打开：
+
+- `http://127.0.0.1:8000/`
+
+即可使用内置的简洁网页界面，填写 URL、Prompt 和 HTML 源码后直接发起解析。
+
 可用接口：
 
 - `POST /extract`
 - `GET /templates`
+- `GET /health`
 
 示例请求：
 

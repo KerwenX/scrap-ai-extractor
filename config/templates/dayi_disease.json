@@ -1,10 +1,10 @@
 {
   "template_id": "dayi_disease_v1",
   "parser_key": "generic:rule",
-  "site_id": "dayi",
-  "site_name": "中国医药信息查询平台",
-  "page_type": "disease_page",
-  "scenario": "disease_detail",
+  "site_id": "dayi.org.cn",
+  "site_name": "dayi.org.cn",
+  "page_type": "detail_page",
+  "scenario": "detail_tabbed",
   "version": "v1",
   "required_fields": [
     "name",
