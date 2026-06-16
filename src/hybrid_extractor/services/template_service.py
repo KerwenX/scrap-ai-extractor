@@ -31,7 +31,7 @@ class TemplateService:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if "parser_key" not in data:
                     continue
-                manifests.append(TemplateManifest.model_validate(data))
+                manifests.append(self._normalize_manifest(TemplateManifest.model_validate(data)))
         return manifests
 
     def load_candidates(self) -> List[TemplateCandidate]:
@@ -57,6 +57,7 @@ class TemplateService:
         return TemplateCandidate.model_validate(data)
 
     def upsert_manifest(self, manifest: TemplateManifest) -> Path:
+        manifest = self._normalize_manifest(manifest)
         path = self.template_store_dir / f"{manifest.template_id}.json"
         path.write_text(
             manifest.model_dump_json(indent=2),
@@ -73,7 +74,28 @@ class TemplateService:
         manifest = self.get_manifest(template_id)
         if manifest is None:
             return None
-        updated = manifest.model_copy(update={"active": active})
+        updated = self._normalize_manifest(
+            manifest.model_copy(
+                update={
+                    "active": active,
+                    "lifecycle_status": "active" if active else "deprecated",
+                }
+            )
+        )
+        self.upsert_manifest(updated)
+        return updated
+
+    def set_manifest_status(
+        self,
+        template_id: str,
+        lifecycle_status: str,
+    ) -> Optional[TemplateManifest]:
+        manifest = self.get_manifest(template_id)
+        if manifest is None:
+            return None
+        updated = self._normalize_manifest(
+            manifest.model_copy(update={"lifecycle_status": lifecycle_status})
+        )
         self.upsert_manifest(updated)
         return updated
 
@@ -124,6 +146,7 @@ class TemplateService:
             scenario=candidate.scenario,
             version=version,
             template_key=normalized_key,
+            lifecycle_status="active",
             active=True,
             fingerprint=candidate.fingerprint,
             required_fields=required_fields or candidate.extracted_fields,
@@ -226,9 +249,23 @@ class TemplateService:
         for manifest in self.load_manifests():
             if self._manifest_template_key(manifest) != template_key:
                 continue
-            if not manifest.active:
+            if not manifest.active and manifest.lifecycle_status != "active":
                 continue
-            self.upsert_manifest(manifest.model_copy(update={"active": False}))
+            self.upsert_manifest(
+                self._normalize_manifest(
+                    manifest.model_copy(update={"active": False, "lifecycle_status": "deprecated"})
+                )
+            )
+
+    def _normalize_manifest(self, manifest: TemplateManifest) -> TemplateManifest:
+        lifecycle_status = manifest.lifecycle_status or ("active" if manifest.active else "deprecated")
+        if lifecycle_status == "active":
+            active = True
+        elif lifecycle_status in {"deprecated", "archived"}:
+            active = False
+        else:
+            active = manifest.active
+        return manifest.model_copy(update={"lifecycle_status": lifecycle_status, "active": active})
 
     def _slug(self, value: str) -> str:
         return "".join(ch if ch.isalnum() else "_" for ch in value).strip("_") or "unknown"

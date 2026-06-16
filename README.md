@@ -154,6 +154,7 @@ run_server()
 - `GET /templates/{template_id}`
 - `POST /templates/{template_id}/activate`
 - `POST /templates/{template_id}/deactivate`
+- `POST /templates/{template_id}/status`
 - `GET /template-candidates`
 - `GET /template-candidates/{candidate_id}`
 - `POST /template-candidates/{candidate_id}/promote`
@@ -216,6 +217,7 @@ legacy 手写站点 parser 不再参与默认匹配主路径。
 
 - `template_key` 表示同一类模板的谱系。
 - `version` 表示该谱系下的版本号，例如 `v1`、`v2`。
+- `lifecycle_status` 表示模板生命周期，当前支持 `draft`、`active`、`deprecated`、`archived`。
 - 人工晋升候选模板时，可指定 `template_key`，系统会自动生成下一个版本号。
 - 可选择在晋升新版本时自动停用旧版本。
 

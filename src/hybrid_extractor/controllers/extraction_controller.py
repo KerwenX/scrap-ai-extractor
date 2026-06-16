@@ -62,6 +62,15 @@ class ExtractionController:
             raise ValueError(f"Template candidate not promotable: {candidate_id}")
         return manifest.model_dump()
 
+    def set_template_status(self, template_id: str, lifecycle_status: str) -> Dict[str, Any]:
+        allowed = {"draft", "active", "deprecated", "archived"}
+        if lifecycle_status not in allowed:
+            raise ValueError(f"Invalid lifecycle_status: {lifecycle_status}")
+        manifest = self.template_service.set_manifest_status(template_id, lifecycle_status)
+        if manifest is None:
+            raise ValueError(f"Template not found: {template_id}")
+        return manifest.model_dump()
+
     def set_template_active(self, template_id: str, active: bool) -> Dict[str, Any]:
         manifest = self.template_service.set_manifest_active(template_id, active)
         if manifest is None:

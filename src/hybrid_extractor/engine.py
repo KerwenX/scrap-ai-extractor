@@ -78,10 +78,18 @@ class HybridExtractionEngine:
             deterministic_result = parser.extract(request, soup, intent)
             validation = validate_data(deterministic_result.data, required_fields)
             debug_trace["deterministic_validation"] = validation.model_dump()
+            manifest = self.template_service.get_manifest(match.template_id)
+            drift_report = self._build_drift_report(
+                match.match_score,
+                validation.coverage,
+                validation.passed,
+                has_fingerprint=bool(manifest and manifest.fingerprint),
+            )
+            debug_trace["drift_report"] = drift_report
 
-            if validation.passed:
+            if validation.passed and not drift_report["should_fallback"]:
                 stored_manifest_path = None
-                existing_manifest = self.template_service.get_manifest(match.template_id)
+                existing_manifest = manifest
                 if existing_manifest is None or existing_manifest.fingerprint is None:
                     manifest = TemplateManifest(
                         template_id=match.template_id,
@@ -91,6 +99,7 @@ class HybridExtractionEngine:
                         page_type=match.page_type,
                         scenario=match.scenario,
                         version=match.version,
+                        lifecycle_status="active",
                         fingerprint=fingerprint,
                         required_fields=list(required_fields),
                         notes="Auto-captured from a successful deterministic parsing run.",
@@ -106,15 +115,16 @@ class HybridExtractionEngine:
                     page_type=match.page_type,
                     extractor_type="deterministic",
                     confidence=round(0.7 + 0.3 * validation.coverage, 3),
-                    drift_detected=False,
+                    drift_detected=drift_report["drift_detected"],
                     data=deterministic_result.data,
                     validation_report=validation,
                     debug_trace=debug_trace,
                 )
 
-            drift_detected = True
+            drift_detected = drift_report["drift_detected"]
             self.logger.info(
-                "Deterministic parsing failed validation; falling back to LLM",
+                "Deterministic parsing requested fallback; reason=%s",
+                drift_report["reason"],
                 extra=logger_extra,
             )
 
@@ -195,6 +205,49 @@ class HybridExtractionEngine:
         if manifest is None:
             return []
         return manifest.required_fields
+
+    def _build_drift_report(
+        self,
+        match_score: float,
+        validation_coverage: float,
+        validation_passed: bool,
+        has_fingerprint: bool,
+    ) -> dict:
+        if not validation_passed:
+            return {
+                "drift_detected": True,
+                "should_fallback": True,
+                "level": "high",
+                "reason": "validation_failed",
+                "fingerprint_score": match_score,
+                "validation_coverage": validation_coverage,
+            }
+        if not has_fingerprint:
+            return {
+                "drift_detected": False,
+                "should_fallback": False,
+                "level": "none",
+                "reason": "no_baseline_fingerprint",
+                "fingerprint_score": match_score,
+                "validation_coverage": validation_coverage,
+            }
+        if match_score < 0.81:
+            return {
+                "drift_detected": True,
+                "should_fallback": True,
+                "level": "high",
+                "reason": "fingerprint_similarity_low",
+                "fingerprint_score": match_score,
+                "validation_coverage": validation_coverage,
+            }
+        return {
+            "drift_detected": False,
+            "should_fallback": False,
+            "level": "none",
+            "reason": "stable",
+            "fingerprint_score": match_score,
+            "validation_coverage": validation_coverage,
+        }
 
     def _build_candidate_analysis(self, soup, data: dict) -> TemplateAnalysis | None:
         if not data:

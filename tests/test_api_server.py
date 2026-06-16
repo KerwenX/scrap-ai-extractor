@@ -120,6 +120,17 @@ def test_api_server_health_and_template_management_responses():
                 payload = json.loads(response.read().decode("utf-8"))
                 assert payload["active"] is False
 
+            status_request = urllib.request.Request(
+                f"{base_url}/templates/paper_detail_v1/status",
+                data=json.dumps({"lifecycle_status": "archived"}).encode("utf-8"),
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with urllib.request.urlopen(status_request) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                assert payload["lifecycle_status"] == "archived"
+                assert payload["active"] is False
+
             bad_json_request = urllib.request.Request(
                 f"{base_url}/extract",
                 data=b'{"bad_json"',

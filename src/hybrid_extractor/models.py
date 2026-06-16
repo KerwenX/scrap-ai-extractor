@@ -123,6 +123,7 @@ class TemplateManifest(BaseModel):
     scenario: str
     version: str = "v1"
     template_key: str = ""
+    lifecycle_status: Literal["draft", "active", "deprecated", "archived"] = "active"
     active: bool = True
     fingerprint: Optional[PageFingerprint] = None
     required_fields: List[str] = Field(default_factory=list)

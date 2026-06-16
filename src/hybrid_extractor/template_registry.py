@@ -93,7 +93,7 @@ class TemplateRegistry:
         best_score = 0.0
 
         for manifest in manifests:
-            if not manifest.active:
+            if not manifest.active or manifest.lifecycle_status != "active":
                 continue
             if manifest.site_id != classification.site_id or manifest.scenario != classification.scenario:
                 continue

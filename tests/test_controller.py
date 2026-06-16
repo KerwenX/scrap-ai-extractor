@@ -9,6 +9,35 @@ from hybrid_extractor.models import (
 from hybrid_extractor.services.template_service import TemplateService
 
 
+def _build_candidate(candidate_id: str, dom_signature: str = "abc123") -> TemplateCandidate:
+    return TemplateCandidate(
+        candidate_id=candidate_id,
+        request_id=f"req-{candidate_id}",
+        site_id="example.com",
+        site_name="example.com",
+        page_type="detail_page",
+        scenario="article_detail",
+        user_prompt="提取标题和摘要",
+        source_url="https://example.com/paper/1",
+        fingerprint=PageFingerprint(
+            dom_signature=dom_signature,
+            headings=["Title"],
+            key_ids=[],
+            key_classes=[],
+        ),
+        extracted_fields=["title", "abstract"],
+        sample_data={"title": "Paper title"},
+        proposed_plan=ExtractionPlan(
+            fields=[
+                FieldRule(
+                    field_name="title",
+                    selectors=[FieldSelectorRule(kind="css", value="h1")],
+                )
+            ]
+        ),
+    )
+
+
 def test_controller_lists_builtin_templates():
     controller = ExtractionController()
     payload = controller.list_templates()
@@ -23,41 +52,30 @@ def test_controller_manages_templates_and_candidates(tmp_path):
         template_store_dir=tmp_path / "template_store",
         template_candidate_dir=tmp_path / "template_candidates",
     )
-    candidate = TemplateCandidate(
-        request_id="req-1",
-        site_id="example.com",
-        site_name="example.com",
-        page_type="detail_page",
-        scenario="article_detail",
-        user_prompt="提取标题和摘要",
-        source_url="https://example.com/paper/1",
-        fingerprint=PageFingerprint(dom_signature="abc123", headings=["Title"], key_ids=[], key_classes=[]),
-        extracted_fields=["title", "abstract"],
-        sample_data={"title": "Paper title"},
-        proposed_plan=ExtractionPlan(
-            fields=[
-                FieldRule(
-                    field_name="title",
-                    selectors=[FieldSelectorRule(kind="css", value="h1")],
-                )
-            ]
-        ),
-    )
+    candidate = _build_candidate("candidate-1")
     service.persist_candidate(candidate)
     manifest = service.solidify_candidate(candidate, required_fields=["title"])
     assert manifest is not None
 
     controller = ExtractionController(template_service=service)
-
     templates_payload = controller.list_templates()
     assert any(item["template_id"] == manifest.template_id for item in templates_payload["templates"])
 
     template_payload = controller.get_template(manifest.template_id)
     assert template_payload["active"] is True
+    assert template_payload["lifecycle_status"] == "active"
 
     updated = controller.set_template_active(manifest.template_id, False)
     assert updated["active"] is False
-    assert controller.get_template(manifest.template_id)["active"] is False
+    assert updated["lifecycle_status"] == "deprecated"
+
+    reactivated = controller.set_template_status(manifest.template_id, "active")
+    assert reactivated["active"] is True
+    assert reactivated["lifecycle_status"] == "active"
+
+    archived = controller.set_template_status(manifest.template_id, "archived")
+    assert archived["active"] is False
+    assert archived["lifecycle_status"] == "archived"
 
     candidates_payload = controller.list_template_candidates()
     assert any(item["candidate_id"] == candidate.candidate_id for item in candidates_payload["candidates"])
@@ -72,33 +90,9 @@ def test_controller_promotes_candidate_with_versioned_template_key(tmp_path):
         template_store_dir=tmp_path / "template_store",
         template_candidate_dir=tmp_path / "template_candidates",
     )
-    first_candidate = TemplateCandidate(
-        request_id="req-1",
-        site_id="example.com",
-        site_name="example.com",
-        page_type="detail_page",
-        scenario="article_detail",
-        user_prompt="提取标题和摘要",
-        source_url="https://example.com/paper/1",
-        fingerprint=PageFingerprint(dom_signature="abc123", headings=["Title"], key_ids=[], key_classes=[]),
-        extracted_fields=["title", "abstract"],
-        sample_data={"title": "Paper title"},
-        proposed_plan=ExtractionPlan(
-            fields=[FieldRule(field_name="title", selectors=[FieldSelectorRule(kind="css", value="h1")])]
-        ),
-    )
-    second_candidate = first_candidate.model_copy(
-        update={
-            "candidate_id": "candidate-2",
-            "request_id": "req-2",
-            "fingerprint": PageFingerprint(
-                dom_signature="def456",
-                headings=["Title 2"],
-                key_ids=[],
-                key_classes=[],
-            ),
-            "sample_data": {"title": "Paper title 2"},
-        }
+    first_candidate = _build_candidate("candidate-1", dom_signature="abc123")
+    second_candidate = _build_candidate("candidate-2", dom_signature="def456").model_copy(
+        update={"sample_data": {"title": "Paper title 2"}}
     )
     service.persist_candidate(first_candidate)
     service.persist_candidate(second_candidate)
@@ -126,4 +120,5 @@ def test_controller_promotes_candidate_with_versioned_template_key(tmp_path):
     assert second_manifest["template_key"] == "paper_detail"
     assert second_manifest["source_candidate_id"] == second_candidate.candidate_id
     assert controller.get_template("paper_detail_v1")["active"] is False
+    assert controller.get_template("paper_detail_v1")["lifecycle_status"] == "deprecated"
     assert controller.get_template("paper_detail_v2")["active"] is True

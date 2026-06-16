@@ -61,6 +61,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._handle_candidate_promotion(candidate_id)
             return
 
+        if route.endswith("/status") and route.startswith("/templates/"):
+            template_id = route.removeprefix("/templates/").removesuffix("/status")
+            self._handle_template_status_update(template_id)
+            return
+
         if route.endswith("/activate") and route.startswith("/templates/"):
             template_id = route.removeprefix("/templates/").removesuffix("/activate")
             self._handle_template_toggle(template_id, True)
@@ -100,6 +105,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json_body()
             response = self.controller.promote_template_candidate(candidate_id, payload)
+            self._send_json(200, response)
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON body"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": "Internal server error", "details": str(exc)})
+
+    def _handle_template_status_update(self, template_id: str) -> None:
+        try:
+            payload = self._read_json_body()
+            lifecycle_status = payload.get("lifecycle_status")
+            if not isinstance(lifecycle_status, str):
+                raise ValueError("lifecycle_status must be a string.")
+            response = self.controller.set_template_status(template_id, lifecycle_status)
             self._send_json(200, response)
         except json.JSONDecodeError:
             self._send_json(400, {"error": "Invalid JSON body"})
