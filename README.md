@@ -156,6 +156,7 @@ run_server()
 - `POST /templates/{template_id}/deactivate`
 - `GET /template-candidates`
 - `GET /template-candidates/{candidate_id}`
+- `POST /template-candidates/{candidate_id}/promote`
 
 ### `POST /extract` 示例
 
@@ -210,6 +211,13 @@ Invoke-RestMethod `
 - 校验失败时回退到 LLM
 
 legacy 手写站点 parser 不再参与默认匹配主路径。
+
+模板版本策略：
+
+- `template_key` 表示同一类模板的谱系。
+- `version` 表示该谱系下的版本号，例如 `v1`、`v2`。
+- 人工晋升候选模板时，可指定 `template_key`，系统会自动生成下一个版本号。
+- 可选择在晋升新版本时自动停用旧版本。
 
 ## 测试
 

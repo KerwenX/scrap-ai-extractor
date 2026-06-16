@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -76,6 +77,67 @@ class TemplateService:
         self.upsert_manifest(updated)
         return updated
 
+    def promote_candidate(
+        self,
+        candidate_id: str,
+        template_key: str | None = None,
+        required_fields: list[str] | None = None,
+        deactivate_previous_versions: bool = False,
+    ) -> TemplateManifest | None:
+        candidate = self.get_candidate(candidate_id)
+        if candidate is None:
+            return None
+        return self.promote_candidate_instance(
+            candidate,
+            template_key=template_key,
+            required_fields=required_fields,
+            deactivate_previous_versions=deactivate_previous_versions,
+        )
+
+    def promote_candidate_instance(
+        self,
+        candidate: TemplateCandidate,
+        template_key: str | None = None,
+        required_fields: list[str] | None = None,
+        deactivate_previous_versions: bool = False,
+    ) -> TemplateManifest | None:
+        if candidate.proposed_plan is None or not candidate.proposed_plan.fields:
+            return None
+
+        existing = self.find_manifest_by_fingerprint(
+            candidate.site_id,
+            candidate.scenario,
+            candidate.fingerprint,
+        )
+        if existing and existing.extraction_plan is not None:
+            return existing
+
+        normalized_key = self._normalize_template_key(template_key or self._default_template_key(candidate))
+        version = self._next_version_for_key(normalized_key)
+        template_id = f"{normalized_key}_{version}"
+        manifest = TemplateManifest(
+            template_id=template_id,
+            parser_key="generic:rule",
+            site_id=candidate.site_id,
+            site_name=candidate.site_name,
+            page_type=candidate.page_type,
+            scenario=candidate.scenario,
+            version=version,
+            template_key=normalized_key,
+            active=True,
+            fingerprint=candidate.fingerprint,
+            required_fields=required_fields or candidate.extracted_fields,
+            extraction_plan=candidate.proposed_plan,
+            notes="Promoted from template candidate.",
+            source_candidate_id=candidate.candidate_id,
+        )
+
+        if deactivate_previous_versions:
+            self._deactivate_manifests_by_key(normalized_key)
+
+        self.upsert_manifest(manifest)
+        return manifest
+
     def solidify_candidate(
         self,
         candidate: TemplateCandidate,
@@ -98,20 +160,16 @@ class TemplateService:
         if existing and existing.extraction_plan is not None:
             return existing
 
-        template_id = self._build_template_id(candidate)
-        manifest = TemplateManifest(
-            template_id=template_id,
-            parser_key="generic:rule",
-            site_id=candidate.site_id,
-            site_name=candidate.site_name,
-            page_type=candidate.page_type,
-            scenario=candidate.scenario,
-            version="v1",
-            active=True,
-            fingerprint=candidate.fingerprint,
+        manifest = self.promote_candidate_instance(
+            candidate,
+            template_key=self._build_template_key_from_signature(candidate),
             required_fields=required_fields,
-            extraction_plan=candidate.proposed_plan,
-            notes="Auto-solidified from a successful LLM fallback candidate.",
+            deactivate_previous_versions=False,
+        )
+        if manifest is None:
+            return None
+        manifest = manifest.model_copy(
+            update={"notes": "Auto-solidified from a successful LLM fallback candidate."}
         )
         self.upsert_manifest(manifest)
         return manifest
@@ -130,10 +188,47 @@ class TemplateService:
         return None
 
     def _build_template_id(self, candidate: TemplateCandidate) -> str:
+        template_key = self._build_template_key_from_signature(candidate)
+        return f"{template_key}_v1"
+
+    def _build_template_key_from_signature(self, candidate: TemplateCandidate) -> str:
         site = self._slug(candidate.site_id or "unknown")
         scenario = self._slug(candidate.scenario or "unknown")
         signature = candidate.fingerprint.dom_signature[:12]
-        return f"{site}_{scenario}_{signature}_v1"
+        return f"{site}_{scenario}_{signature}"
+
+    def _default_template_key(self, candidate: TemplateCandidate) -> str:
+        site = self._slug(candidate.site_id or "unknown")
+        scenario = self._slug(candidate.scenario or "unknown")
+        return f"{site}_{scenario}"
+
+    def _normalize_template_key(self, value: str) -> str:
+        normalized = self._slug(value)
+        return re.sub(r"_v\d+$", "", normalized)
+
+    def _next_version_for_key(self, template_key: str) -> str:
+        max_version = 0
+        for manifest in self.load_manifests():
+            manifest_key = self._manifest_template_key(manifest)
+            if manifest_key != template_key:
+                continue
+            match = re.search(r"v(\d+)$", manifest.version or "")
+            if match:
+                max_version = max(max_version, int(match.group(1)))
+        return f"v{max_version + 1}"
+
+    def _manifest_template_key(self, manifest: TemplateManifest) -> str:
+        if manifest.template_key:
+            return manifest.template_key
+        return re.sub(r"_v\d+$", "", manifest.template_id)
+
+    def _deactivate_manifests_by_key(self, template_key: str) -> None:
+        for manifest in self.load_manifests():
+            if self._manifest_template_key(manifest) != template_key:
+                continue
+            if not manifest.active:
+                continue
+            self.upsert_manifest(manifest.model_copy(update={"active": False}))
 
     def _slug(self, value: str) -> str:
         return "".join(ch if ch.isalnum() else "_" for ch in value).strip("_") or "unknown"

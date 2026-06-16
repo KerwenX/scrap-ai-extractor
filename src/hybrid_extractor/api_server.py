@@ -56,6 +56,11 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Internal server error", "details": str(exc)})
             return
 
+        if route.endswith("/promote") and route.startswith("/template-candidates/"):
+            candidate_id = route.removeprefix("/template-candidates/").removesuffix("/promote")
+            self._handle_candidate_promotion(candidate_id)
+            return
+
         if route.endswith("/activate") and route.startswith("/templates/"):
             template_id = route.removeprefix("/templates/").removesuffix("/activate")
             self._handle_template_toggle(template_id, True)
@@ -88,6 +93,18 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, response)
         except ValueError as exc:
             self._send_json(404, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": "Internal server error", "details": str(exc)})
+
+    def _handle_candidate_promotion(self, candidate_id: str) -> None:
+        try:
+            payload = self._read_json_body()
+            response = self.controller.promote_template_candidate(candidate_id, payload)
+            self._send_json(200, response)
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON body"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": "Internal server error", "details": str(exc)})
 

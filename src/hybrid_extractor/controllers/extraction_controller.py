@@ -43,6 +43,25 @@ class ExtractionController:
             raise ValueError(f"Template candidate not found: {candidate_id}")
         return candidate.model_dump()
 
+    def promote_template_candidate(self, candidate_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        required_fields = payload.get("required_fields")
+        if required_fields is not None and not isinstance(required_fields, list):
+            raise ValueError("required_fields must be a list when provided.")
+        template_key = payload.get("template_key")
+        if template_key is not None and not isinstance(template_key, str):
+            raise ValueError("template_key must be a string when provided.")
+        deactivate_previous_versions = bool(payload.get("deactivate_previous_versions", False))
+
+        manifest = self.template_service.promote_candidate(
+            candidate_id,
+            template_key=template_key,
+            required_fields=required_fields,
+            deactivate_previous_versions=deactivate_previous_versions,
+        )
+        if manifest is None:
+            raise ValueError(f"Template candidate not promotable: {candidate_id}")
+        return manifest.model_dump()
+
     def set_template_active(self, template_id: str, active: bool) -> Dict[str, Any]:
         manifest = self.template_service.set_manifest_active(template_id, active)
         if manifest is None:

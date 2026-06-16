@@ -17,7 +17,7 @@ from hybrid_extractor.models import (
 from hybrid_extractor.services.template_service import TemplateService
 
 
-def test_api_server_health_and_validation_responses():
+def test_api_server_health_and_template_management_responses():
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         service = TemplateService(
@@ -50,7 +50,21 @@ def test_api_server_health_and_validation_responses():
                 ]
             ),
         )
+        promote_candidate = candidate.model_copy(
+            update={
+                "candidate_id": "candidate-2",
+                "request_id": "req-2",
+                "fingerprint": PageFingerprint(
+                    dom_signature="def456",
+                    headings=["Title 2"],
+                    key_ids=[],
+                    key_classes=[],
+                ),
+                "sample_data": {"title": "Paper title 2"},
+            }
+        )
         service.persist_candidate(candidate)
+        service.persist_candidate(promote_candidate)
         manifest = service.solidify_candidate(candidate, required_fields=["title"])
         assert manifest is not None
 
@@ -74,19 +88,30 @@ def test_api_server_health_and_validation_responses():
                 payload = json.loads(response.read().decode("utf-8"))
                 assert any(item["template_id"] == manifest.template_id for item in payload["templates"])
 
-            with urllib.request.urlopen(f"{base_url}/templates/{manifest.template_id}") as response:
-                payload = json.loads(response.read().decode("utf-8"))
-                assert payload["template_id"] == manifest.template_id
-
             with urllib.request.urlopen(f"{base_url}/template-candidates") as response:
                 payload = json.loads(response.read().decode("utf-8"))
-                assert any(
-                    item["candidate_id"] == candidate.candidate_id
-                    for item in payload["candidates"]
-                )
+                assert any(item["candidate_id"] == candidate.candidate_id for item in payload["candidates"])
+
+            promote_body = json.dumps(
+                {
+                    "template_key": "paper_detail",
+                    "required_fields": ["title"],
+                    "deactivate_previous_versions": True,
+                }
+            ).encode("utf-8")
+            promote_request = urllib.request.Request(
+                f"{base_url}/template-candidates/{promote_candidate.candidate_id}/promote",
+                data=promote_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with urllib.request.urlopen(promote_request) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                assert payload["template_id"] == "paper_detail_v1"
+                assert payload["template_key"] == "paper_detail"
 
             toggle_request = urllib.request.Request(
-                f"{base_url}/templates/{manifest.template_id}/deactivate",
+                f"{base_url}/templates/paper_detail_v1/deactivate",
                 data=b"{}",
                 headers={"Content-Type": "application/json; charset=utf-8"},
                 method="POST",
@@ -95,14 +120,14 @@ def test_api_server_health_and_validation_responses():
                 payload = json.loads(response.read().decode("utf-8"))
                 assert payload["active"] is False
 
-            request = urllib.request.Request(
+            bad_json_request = urllib.request.Request(
                 f"{base_url}/extract",
                 data=b'{"bad_json"',
                 headers={"Content-Type": "application/json; charset=utf-8"},
                 method="POST",
             )
             try:
-                urllib.request.urlopen(request)
+                urllib.request.urlopen(bad_json_request)
             except urllib.error.HTTPError as exc:
                 payload = json.loads(exc.read().decode("utf-8"))
                 assert exc.code == 400

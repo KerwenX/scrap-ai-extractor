@@ -1,5 +1,11 @@
 from hybrid_extractor.controllers import ExtractionController
-from hybrid_extractor.models import ExtractionPlan, FieldRule, FieldSelectorRule, PageFingerprint, TemplateCandidate
+from hybrid_extractor.models import (
+    ExtractionPlan,
+    FieldRule,
+    FieldSelectorRule,
+    PageFingerprint,
+    TemplateCandidate,
+)
 from hybrid_extractor.services.template_service import TemplateService
 
 
@@ -58,3 +64,66 @@ def test_controller_manages_templates_and_candidates(tmp_path):
 
     candidate_payload = controller.get_template_candidate(candidate.candidate_id)
     assert candidate_payload["sample_data"]["title"] == "Paper title"
+
+
+def test_controller_promotes_candidate_with_versioned_template_key(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    first_candidate = TemplateCandidate(
+        request_id="req-1",
+        site_id="example.com",
+        site_name="example.com",
+        page_type="detail_page",
+        scenario="article_detail",
+        user_prompt="提取标题和摘要",
+        source_url="https://example.com/paper/1",
+        fingerprint=PageFingerprint(dom_signature="abc123", headings=["Title"], key_ids=[], key_classes=[]),
+        extracted_fields=["title", "abstract"],
+        sample_data={"title": "Paper title"},
+        proposed_plan=ExtractionPlan(
+            fields=[FieldRule(field_name="title", selectors=[FieldSelectorRule(kind="css", value="h1")])]
+        ),
+    )
+    second_candidate = first_candidate.model_copy(
+        update={
+            "candidate_id": "candidate-2",
+            "request_id": "req-2",
+            "fingerprint": PageFingerprint(
+                dom_signature="def456",
+                headings=["Title 2"],
+                key_ids=[],
+                key_classes=[],
+            ),
+            "sample_data": {"title": "Paper title 2"},
+        }
+    )
+    service.persist_candidate(first_candidate)
+    service.persist_candidate(second_candidate)
+    controller = ExtractionController(template_service=service)
+
+    first_manifest = controller.promote_template_candidate(
+        first_candidate.candidate_id,
+        {
+            "template_key": "paper_detail",
+            "required_fields": ["title"],
+            "deactivate_previous_versions": True,
+        },
+    )
+    second_manifest = controller.promote_template_candidate(
+        second_candidate.candidate_id,
+        {
+            "template_key": "paper_detail",
+            "required_fields": ["title"],
+            "deactivate_previous_versions": True,
+        },
+    )
+
+    assert first_manifest["template_id"] == "paper_detail_v1"
+    assert second_manifest["template_id"] == "paper_detail_v2"
+    assert second_manifest["template_key"] == "paper_detail"
+    assert second_manifest["source_candidate_id"] == second_candidate.candidate_id
+    assert controller.get_template("paper_detail_v1")["active"] is False
+    assert controller.get_template("paper_detail_v2")["active"] is True
