@@ -17,6 +17,35 @@ from hybrid_extractor.models import (
 from hybrid_extractor.services.template_service import TemplateService
 
 
+def _build_candidate(candidate_id: str, dom_signature: str = "abc123") -> TemplateCandidate:
+    return TemplateCandidate(
+        candidate_id=candidate_id,
+        request_id=f"req-{candidate_id}",
+        site_id="example.com",
+        site_name="example.com",
+        page_type="detail_page",
+        scenario="article_detail",
+        user_prompt="提取标题和摘要",
+        source_url="https://example.com/paper/1",
+        fingerprint=PageFingerprint(
+            dom_signature=dom_signature,
+            headings=["Title"],
+            key_ids=[],
+            key_classes=[],
+        ),
+        extracted_fields=["title"],
+        sample_data={"title": "Paper title"},
+        proposed_plan=ExtractionPlan(
+            fields=[
+                FieldRule(
+                    field_name="title",
+                    selectors=[FieldSelectorRule(kind="css", value="h1")],
+                )
+            ]
+        ),
+    )
+
+
 def test_api_server_health_and_template_management_responses():
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -25,46 +54,14 @@ def test_api_server_health_and_template_management_responses():
             template_store_dir=root / "template_store",
             template_candidate_dir=root / "template_candidates",
         )
-        candidate = TemplateCandidate(
-            request_id="req-1",
-            site_id="example.com",
-            site_name="example.com",
-            page_type="detail_page",
-            scenario="article_detail",
-            user_prompt="提取标题和摘要",
-            source_url="https://example.com/paper/1",
-            fingerprint=PageFingerprint(
-                dom_signature="abc123",
-                headings=["Title"],
-                key_ids=[],
-                key_classes=[],
-            ),
-            extracted_fields=["title"],
-            sample_data={"title": "Paper title"},
-            proposed_plan=ExtractionPlan(
-                fields=[
-                    FieldRule(
-                        field_name="title",
-                        selectors=[FieldSelectorRule(kind="css", value="h1")],
-                    )
-                ]
-            ),
+        candidate = _build_candidate("candidate-1", "abc123")
+        promote_candidate = _build_candidate("candidate-2", "def456").model_copy(
+            update={"sample_data": {"title": "Paper title 2"}}
         )
-        promote_candidate = candidate.model_copy(
-            update={
-                "candidate_id": "candidate-2",
-                "request_id": "req-2",
-                "fingerprint": PageFingerprint(
-                    dom_signature="def456",
-                    headings=["Title 2"],
-                    key_ids=[],
-                    key_classes=[],
-                ),
-                "sample_data": {"title": "Paper title 2"},
-            }
-        )
+        delete_candidate = _build_candidate("candidate-3", "ghi789")
         service.persist_candidate(candidate)
         service.persist_candidate(promote_candidate)
+        service.persist_candidate(delete_candidate)
         manifest = service.solidify_candidate(candidate, required_fields=["title"])
         assert manifest is not None
 
@@ -83,6 +80,7 @@ def test_api_server_health_and_template_management_responses():
             with urllib.request.urlopen(f"{base_url}/") as response:
                 html = response.read().decode("utf-8")
                 assert "<title>混合网页解析器</title>" in html
+                assert "删除选中" in html
 
             with urllib.request.urlopen(f"{base_url}/templates") as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -110,26 +108,23 @@ def test_api_server_health_and_template_management_responses():
                 assert payload["template_id"] == "paper_detail_v1"
                 assert payload["template_key"] == "paper_detail"
 
-            toggle_request = urllib.request.Request(
-                f"{base_url}/templates/paper_detail_v1/deactivate",
-                data=b"{}",
+            batch_delete_request = urllib.request.Request(
+                f"{base_url}/templates/delete-batch",
+                data=json.dumps({"template_ids": [manifest.template_id, "paper_detail_v1"]}).encode("utf-8"),
                 headers={"Content-Type": "application/json; charset=utf-8"},
                 method="POST",
             )
-            with urllib.request.urlopen(toggle_request) as response:
+            with urllib.request.urlopen(batch_delete_request) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-                assert payload["active"] is False
+                assert payload["deleted_count"] == 2
 
-            status_request = urllib.request.Request(
-                f"{base_url}/templates/paper_detail_v1/status",
-                data=json.dumps({"lifecycle_status": "archived"}).encode("utf-8"),
-                headers={"Content-Type": "application/json; charset=utf-8"},
-                method="POST",
+            candidate_delete_request = urllib.request.Request(
+                f"{base_url}/template-candidates/{delete_candidate.candidate_id}",
+                method="DELETE",
             )
-            with urllib.request.urlopen(status_request) as response:
+            with urllib.request.urlopen(candidate_delete_request) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-                assert payload["lifecycle_status"] == "archived"
-                assert payload["active"] is False
+                assert payload["deleted"] is True
 
             bad_json_request = urllib.request.Request(
                 f"{base_url}/extract",

@@ -61,6 +61,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._handle_candidate_promotion(candidate_id)
             return
 
+        if route == "/templates/delete-batch":
+            self._handle_template_batch_delete()
+            return
+
         if route.endswith("/status") and route.startswith("/templates/"):
             template_id = route.removeprefix("/templates/").removesuffix("/status")
             self._handle_template_status_update(template_id)
@@ -74,6 +78,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         if route.endswith("/deactivate") and route.startswith("/templates/"):
             template_id = route.removeprefix("/templates/").removesuffix("/deactivate")
             self._handle_template_toggle(template_id, False)
+            return
+
+        self._send_json(404, {"error": "Not found"})
+
+    def do_DELETE(self) -> None:
+        route = self._route_path()
+
+        if route.startswith("/templates/"):
+            template_id = route.removeprefix("/templates/")
+            self._handle_template_delete(template_id)
+            return
+
+        if route.startswith("/template-candidates/"):
+            candidate_id = route.removeprefix("/template-candidates/")
+            self._handle_candidate_delete(candidate_id)
             return
 
         self._send_json(404, {"error": "Not found"})
@@ -125,6 +144,36 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid JSON body"})
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": "Internal server error", "details": str(exc)})
+
+    def _handle_template_delete(self, template_id: str) -> None:
+        try:
+            response = self.controller.delete_template(template_id)
+            self._send_json(200, response)
+        except ValueError as exc:
+            self._send_json(404, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": "Internal server error", "details": str(exc)})
+
+    def _handle_template_batch_delete(self) -> None:
+        try:
+            payload = self._read_json_body()
+            response = self.controller.delete_templates(payload)
+            self._send_json(200, response)
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON body"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": "Internal server error", "details": str(exc)})
+
+    def _handle_candidate_delete(self, candidate_id: str) -> None:
+        try:
+            response = self.controller.delete_template_candidate(candidate_id)
+            self._send_json(200, response)
+        except ValueError as exc:
+            self._send_json(404, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": "Internal server error", "details": str(exc)})
 

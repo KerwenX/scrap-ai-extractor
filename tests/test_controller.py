@@ -122,3 +122,40 @@ def test_controller_promotes_candidate_with_versioned_template_key(tmp_path):
     assert controller.get_template("paper_detail_v1")["active"] is False
     assert controller.get_template("paper_detail_v1")["lifecycle_status"] == "deprecated"
     assert controller.get_template("paper_detail_v2")["active"] is True
+
+
+def test_controller_deletes_single_and_multiple_templates(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    first_candidate = _build_candidate("candidate-1", dom_signature="abc123")
+    second_candidate = _build_candidate("candidate-2", dom_signature="def456")
+    service.persist_candidate(first_candidate)
+    service.persist_candidate(second_candidate)
+    first_manifest = service.solidify_candidate(first_candidate, required_fields=["title"])
+    second_manifest = service.solidify_candidate(second_candidate, required_fields=["title"])
+    assert first_manifest is not None
+    assert second_manifest is not None
+
+    controller = ExtractionController(template_service=service)
+    deleted = controller.delete_template(first_manifest.template_id)
+    assert deleted["deleted"] is True
+    assert controller.get_template(second_manifest.template_id)["template_id"] == second_manifest.template_id
+
+    batch_deleted = controller.delete_templates({"template_ids": [second_manifest.template_id, "missing"]})
+    assert batch_deleted["deleted_count"] == 1
+
+
+def test_controller_deletes_candidate(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    candidate = _build_candidate("candidate-1")
+    service.persist_candidate(candidate)
+    controller = ExtractionController(template_service=service)
+    deleted = controller.delete_template_candidate(candidate.candidate_id)
+    assert deleted["deleted"] is True

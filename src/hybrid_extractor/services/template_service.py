@@ -56,6 +56,27 @@ class TemplateService:
         data = json.loads(path.read_text(encoding="utf-8"))
         return TemplateCandidate.model_validate(data)
 
+    def delete_manifest(self, template_id: str) -> bool:
+        path = self.template_store_dir / f"{template_id}.json"
+        if path.exists():
+            path.unlink()
+            return True
+        return False
+
+    def delete_manifests(self, template_ids: list[str]) -> int:
+        deleted = 0
+        for template_id in template_ids:
+            if self.delete_manifest(template_id):
+                deleted += 1
+        return deleted
+
+    def delete_candidate(self, candidate_id: str) -> bool:
+        path = self.template_candidate_dir / f"{candidate_id}.json"
+        if path.exists():
+            path.unlink()
+            return True
+        return False
+
     def upsert_manifest(self, manifest: TemplateManifest) -> Path:
         manifest = self._normalize_manifest(manifest)
         path = self.template_store_dir / f"{manifest.template_id}.json"

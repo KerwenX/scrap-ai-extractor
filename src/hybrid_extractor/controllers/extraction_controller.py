@@ -33,6 +33,23 @@ class ExtractionController:
             raise ValueError(f"Template not found: {template_id}")
         return manifest.model_dump()
 
+    def delete_template(self, template_id: str) -> Dict[str, Any]:
+        deleted = self.template_service.delete_manifest(template_id)
+        if not deleted:
+            raise ValueError(f"Template not found: {template_id}")
+        return {"deleted": True, "template_id": template_id}
+
+    def delete_templates(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        template_ids = payload.get("template_ids")
+        if not isinstance(template_ids, list) or not all(isinstance(item, str) for item in template_ids):
+            raise ValueError("template_ids must be a list of strings.")
+        deleted_count = self.template_service.delete_manifests(template_ids)
+        return {
+            "deleted_count": deleted_count,
+            "requested_count": len(template_ids),
+            "template_ids": template_ids,
+        }
+
     def list_template_candidates(self) -> Dict[str, Any]:
         candidates = [candidate.model_dump() for candidate in self.template_service.load_candidates()]
         return {"candidates": candidates}
@@ -42,6 +59,12 @@ class ExtractionController:
         if candidate is None:
             raise ValueError(f"Template candidate not found: {candidate_id}")
         return candidate.model_dump()
+
+    def delete_template_candidate(self, candidate_id: str) -> Dict[str, Any]:
+        deleted = self.template_service.delete_candidate(candidate_id)
+        if not deleted:
+            raise ValueError(f"Template candidate not found: {candidate_id}")
+        return {"deleted": True, "candidate_id": candidate_id}
 
     def promote_template_candidate(self, candidate_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         required_fields = payload.get("required_fields")

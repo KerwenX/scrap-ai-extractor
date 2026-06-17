@@ -34,17 +34,14 @@ def build_web_ui_html() -> str:
       background: var(--bg);
     }
     .shell {
-      max-width: 1380px;
+      max-width: 1480px;
       margin: 0 auto;
       padding: 28px 18px 40px;
     }
-    .hero, .workspace, .lower-grid {
-      display: grid;
-      gap: 18px;
-    }
+    .hero, .workspace, .lower-grid { display: grid; gap: 18px; }
     .hero { grid-template-columns: 1.3fr 0.9fr; margin-bottom: 18px; }
     .workspace { grid-template-columns: minmax(340px, 430px) minmax(0, 1fr); align-items: start; }
-    .lower-grid { margin-top: 18px; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); }
+    .lower-grid { margin-top: 18px; grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr); }
     .library-stack { display: grid; gap: 18px; }
     .panel {
       background: var(--panel);
@@ -54,10 +51,7 @@ def build_web_ui_html() -> str:
       backdrop-filter: blur(10px);
     }
     .hero-copy, .hero-meta, .form-panel, .result-panel, .library-panel, .detail-panel { padding: 22px 28px; }
-    .hero-copy {
-      position: relative;
-      overflow: hidden;
-    }
+    .hero-copy { position: relative; overflow: hidden; }
     .hero-copy::after {
       content: "";
       position: absolute;
@@ -81,19 +75,19 @@ def build_web_ui_html() -> str:
       color: var(--muted);
     }
     .hero-meta { display: grid; gap: 12px; align-content: center; }
-    .stat, .card, .empty {
+    .stat, .empty {
       border: 1px solid var(--line);
       border-radius: 18px;
       background: rgba(255, 255, 255, 0.6);
     }
     .stat { padding: 14px 16px; }
-    .stat-label, label, .status, .mini-note, .hint, .card-meta { color: var(--muted); }
+    .stat-label, label, .status, .mini-note, .hint, .card-meta, .table-meta { color: var(--muted); }
     .stat-label { display: block; margin-bottom: 6px; font-size: 12px; }
     .stat-value { font-size: 15px; font-weight: 600; }
     .section-title { margin: 0 0 16px; font-size: 18px; font-weight: 700; }
     .field { margin-bottom: 14px; }
     label { display: block; margin-bottom: 8px; font-size: 13px; }
-    input[type="text"], textarea {
+    input[type="text"], textarea, select {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 14px;
@@ -104,30 +98,39 @@ def build_web_ui_html() -> str:
     }
     textarea { min-height: 132px; resize: vertical; }
     .html-box { min-height: 260px; font-family: var(--mono); font-size: 12px; line-height: 1.55; }
-    .actions, .toolbar, .result-toolbar {
+    .actions, .toolbar, .result-toolbar, .filter-row, .pager {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
       align-items: center;
     }
-    .result-toolbar { justify-content: space-between; margin-bottom: 12px; }
+    .result-toolbar, .pager { justify-content: space-between; }
     .actions { margin-top: 18px; }
-    button {
+    .filter-row { margin: 14px 0 10px; }
+    .filter-row > * { flex: 1 1 160px; }
+    .filter-row .compact { flex: 0 0 140px; }
+    .toolbar.compact { gap: 8px; }
+    button, .button-like {
       border: 0;
       border-radius: 999px;
       padding: 10px 16px;
       font: inherit;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
     }
-    button:disabled { opacity: 0.65; cursor: default; }
+    button:disabled, .button-like:has(input:disabled) { opacity: 0.65; cursor: default; }
     .primary {
       color: white;
       background: linear-gradient(135deg, var(--accent) 0%, #2d8b78 100%);
       box-shadow: 0 14px 30px rgba(13, 107, 99, 0.24);
     }
-    .secondary, .ghost {
+    .secondary, .ghost, .button-like.secondary {
       color: var(--text);
-      background: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.82);
       border: 1px solid var(--line);
     }
     .ghost { font-size: 13px; padding: 8px 14px; }
@@ -135,8 +138,21 @@ def build_web_ui_html() -> str:
       color: white;
       background: linear-gradient(135deg, #8f2d2d 0%, #bc4b4b 100%);
     }
-    .upload { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
-    .upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .warning-button {
+      color: #7a4d07;
+      background: rgba(140, 95, 10, 0.12);
+      border: 1px solid rgba(140, 95, 10, 0.18);
+    }
+    .upload {
+      position: relative;
+      overflow: hidden;
+    }
+    .upload input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
     .badge, .pill {
       display: inline-flex;
       align-items: center;
@@ -166,19 +182,65 @@ def build_web_ui_html() -> str:
       font-size: 12px;
       line-height: 1.6;
     }
-    .detail-panel pre { min-height: 500px; background: #121826; }
-    .list-grid { display: grid; gap: 12px; }
-    .card { padding: 14px; }
-    .card-head {
+    .detail-panel pre { min-height: 620px; background: #121826; }
+    .empty { padding: 18px; border-style: dashed; font-size: 13px; }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.58);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 880px;
+    }
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(244, 248, 250, 0.95);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .row-title {
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+    .row-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      word-break: break-word;
+    }
+    .checkbox-cell {
+      width: 40px;
+    }
+    .checkbox-cell input {
+      width: 16px;
+      height: 16px;
+    }
+    .row-actions {
       display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .table-meta {
+      font-size: 12px;
       margin-bottom: 10px;
     }
-    .card-title { margin: 0; font-size: 15px; font-weight: 700; word-break: break-word; }
-    .card-meta { display: grid; gap: 4px; font-size: 13px; margin-bottom: 12px; }
-    .empty { padding: 18px; border-style: dashed; font-size: 13px; }
+    .hidden { display: none !important; }
     @media (max-width: 1080px) {
       .hero, .workspace, .lower-grid { grid-template-columns: 1fr; }
       .detail-panel pre { min-height: 360px; }
@@ -194,8 +256,8 @@ def build_web_ui_html() -> str:
       </div>
       <div class="panel hero-meta">
         <div class="stat"><span class="stat-label">核心接口</span><span class="stat-value">POST /extract</span></div>
-        <div class="stat"><span class="stat-label">模板管理</span><span class="stat-value">/templates · /template-candidates</span></div>
-        <div class="stat"><span class="stat-label">当前策略</span><span class="stat-value">模板优先，LLM 兜底，支持人工晋升</span></div>
+        <div class="stat"><span class="stat-label">模板管理</span><span class="stat-value">分页、筛选、批量删除</span></div>
+        <div class="stat"><span class="stat-label">当前策略</span><span class="stat-value">模板优先，LLM 兜底，支持人工治理</span></div>
       </div>
     </section>
 
@@ -216,7 +278,7 @@ def build_web_ui_html() -> str:
         </div>
         <div class="actions">
           <button class="primary" id="extractBtn" type="button">开始解析</button>
-          <label class="secondary upload">导入 HTML 文件<input id="fileInput" type="file" accept=".html,.htm,text/html" /></label>
+          <label class="button-like secondary upload" id="uploadButton">导入 HTML 文件<input id="fileInput" type="file" accept=".html,.htm,text/html" /></label>
           <button class="secondary" id="sampleBtn" type="button">填充示例</button>
           <button class="secondary" id="clearBtn" type="button">清空</button>
         </div>
@@ -240,36 +302,111 @@ def build_web_ui_html() -> str:
         <div class="panel library-panel">
           <div class="result-toolbar">
             <h2 class="section-title" style="margin: 0;">正式模板</h2>
-            <div class="toolbar"><button class="ghost" id="refreshTemplatesBtn" type="button">刷新模板</button></div>
+            <div class="toolbar compact">
+              <button class="ghost" id="refreshTemplatesBtn" type="button">刷新模板</button>
+              <button class="danger" id="deleteSelectedTemplatesBtn" type="button">删除选中</button>
+            </div>
           </div>
-          <div class="mini-note">正式模板参与主路径匹配。停用后不会被命中。</div>
-          <div class="list-grid" id="templatesList" style="margin-top: 14px;"></div>
+          <div class="mini-note">模板列表支持搜索、筛选和分页，避免模板数量变大后整页铺开。</div>
+          <div class="filter-row">
+            <input id="templateSearch" type="text" placeholder="搜索 template_id / site_id / template_key" />
+            <select id="templateStatusFilter" class="compact">
+              <option value="">全部状态</option>
+              <option value="active">active</option>
+              <option value="draft">draft</option>
+              <option value="deprecated">deprecated</option>
+              <option value="archived">archived</option>
+            </select>
+            <select id="templatePageSize" class="compact">
+              <option value="5">5 / 页</option>
+              <option value="10" selected>10 / 页</option>
+              <option value="20">20 / 页</option>
+            </select>
+          </div>
+          <div class="table-meta" id="templateMeta"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="checkbox-cell"><input id="selectAllTemplates" type="checkbox" /></th>
+                  <th>模板</th>
+                  <th>站点 / 场景</th>
+                  <th>状态</th>
+                  <th>版本</th>
+                  <th>字段</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="templatesTableBody"></tbody>
+            </table>
+          </div>
+          <div class="pager" style="margin-top: 12px;">
+            <button class="ghost" id="templatePrevBtn" type="button">上一页</button>
+            <div class="mini-note" id="templatePagerText"></div>
+            <button class="ghost" id="templateNextBtn" type="button">下一页</button>
+          </div>
         </div>
 
         <div class="panel library-panel">
           <div class="result-toolbar">
             <h2 class="section-title" style="margin: 0;">候选模板</h2>
-            <div class="toolbar"><button class="ghost" id="refreshCandidatesBtn" type="button">刷新候选</button></div>
+            <div class="toolbar compact">
+              <button class="ghost" id="refreshCandidatesBtn" type="button">刷新候选</button>
+            </div>
           </div>
-          <div class="mini-note">候选模板保留首次 LLM 成功抽取后的分析结果与 DSL 草案，可人工晋升为正式模板。</div>
-          <div class="list-grid" id="candidatesList" style="margin-top: 14px;"></div>
+          <div class="mini-note">候选模板保留首次 LLM 成功抽取后的分析结果与 DSL 草案。</div>
+          <div class="filter-row">
+            <input id="candidateSearch" type="text" placeholder="搜索 candidate_id / site_id / source_url" />
+            <select id="candidatePageSize" class="compact">
+              <option value="5">5 / 页</option>
+              <option value="10" selected>10 / 页</option>
+              <option value="20">20 / 页</option>
+            </select>
+          </div>
+          <div class="table-meta" id="candidateMeta"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>候选模板</th>
+                  <th>站点 / 场景</th>
+                  <th>字段</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="candidatesTableBody"></tbody>
+            </table>
+          </div>
+          <div class="pager" style="margin-top: 12px;">
+            <button class="ghost" id="candidatePrevBtn" type="button">上一页</button>
+            <div class="mini-note" id="candidatePagerText"></div>
+            <button class="ghost" id="candidateNextBtn" type="button">下一页</button>
+          </div>
         </div>
       </div>
 
       <div class="panel detail-panel">
         <div class="result-toolbar">
-          <h2 class="section-title" style="margin: 0;">模板详情</h2>
+          <h2 class="section-title" style="margin: 0;">详情</h2>
           <div class="badge" id="detailBadge">未选择</div>
         </div>
-        <div class="status" id="detailStatus">点击左侧卡片查看模板或候选模板详情。</div>
+        <div class="status" id="detailStatus">点击表格中的详情按钮查看模板或候选模板内容。</div>
         <pre id="detailBox">{
-  "message": "模板详情会显示在这里。"
+  "message": "详情会显示在这里。"
 }</pre>
       </div>
     </section>
   </div>
 
   <script>
+    const state = {
+      templates: [],
+      candidates: [],
+      selectedTemplateIds: new Set(),
+      templatePage: 1,
+      candidatePage: 1
+    };
+
     const urlInput = document.getElementById("url");
     const promptInput = document.getElementById("prompt");
     const htmlInput = document.getElementById("html");
@@ -280,13 +417,28 @@ def build_web_ui_html() -> str:
     const resultBox = document.getElementById("resultBox");
     const statusLine = document.getElementById("statusLine");
     const statusBadge = document.getElementById("statusBadge");
-    const templatesList = document.getElementById("templatesList");
-    const candidatesList = document.getElementById("candidatesList");
     const detailBox = document.getElementById("detailBox");
     const detailStatus = document.getElementById("detailStatus");
     const detailBadge = document.getElementById("detailBadge");
     const refreshTemplatesBtn = document.getElementById("refreshTemplatesBtn");
     const refreshCandidatesBtn = document.getElementById("refreshCandidatesBtn");
+    const deleteSelectedTemplatesBtn = document.getElementById("deleteSelectedTemplatesBtn");
+    const templateSearch = document.getElementById("templateSearch");
+    const templateStatusFilter = document.getElementById("templateStatusFilter");
+    const templatePageSize = document.getElementById("templatePageSize");
+    const templateMeta = document.getElementById("templateMeta");
+    const templatesTableBody = document.getElementById("templatesTableBody");
+    const templatePagerText = document.getElementById("templatePagerText");
+    const templatePrevBtn = document.getElementById("templatePrevBtn");
+    const templateNextBtn = document.getElementById("templateNextBtn");
+    const selectAllTemplates = document.getElementById("selectAllTemplates");
+    const candidateSearch = document.getElementById("candidateSearch");
+    const candidatePageSize = document.getElementById("candidatePageSize");
+    const candidateMeta = document.getElementById("candidateMeta");
+    const candidatesTableBody = document.getElementById("candidatesTableBody");
+    const candidatePagerText = document.getElementById("candidatePagerText");
+    const candidatePrevBtn = document.getElementById("candidatePrevBtn");
+    const candidateNextBtn = document.getElementById("candidateNextBtn");
 
     function setStatus(text, tone) {
       statusLine.textContent = text;
@@ -326,105 +478,195 @@ def build_web_ui_html() -> str:
       return data;
     }
 
+    async function requestNoContent(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    }
+
     function escapeHtml(value) {
-      return String(value)
+      return String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
     }
 
-    function renderTemplates(templates) {
-      if (!templates.length) {
-        templatesList.innerHTML = '<div class="empty">当前还没有可用的正式模板。</div>';
-        return;
-      }
-      templatesList.innerHTML = templates.map((item) => {
-        const activeLabel = item.active ? "启用中" : "已停用";
-        const activeClass = item.active ? "success" : "muted";
-        const requiredFields = Array.isArray(item.required_fields) ? item.required_fields.join(", ") : "";
-        return `
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3 class="card-title">${escapeHtml(item.template_id)}</h3>
-                <div class="card-meta">
-                  <span>${escapeHtml(item.site_id)} · ${escapeHtml(item.scenario)}</span>
-                  <span>template_key: ${escapeHtml(item.template_key || "-")}</span>
-                  <span>required_fields: ${escapeHtml(requiredFields || "-")}</span>
-                </div>
-              </div>
-              <span class="pill ${activeClass}">${activeLabel}</span>
-            </div>
-            <div class="toolbar">
-              <button class="ghost" type="button" data-template-detail="${escapeHtml(item.template_id)}">查看详情</button>
-              <button class="${item.active ? "danger" : "secondary"}" type="button" data-template-toggle="${escapeHtml(item.template_id)}" data-next-state="${item.active ? "deactivate" : "activate"}">${item.active ? "停用" : "启用"}</button>
-            </div>
-          </div>
-        `;
-      }).join("");
+    function paginate(items, page, pageSize) {
+      const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+      const safePage = Math.min(Math.max(1, page), totalPages);
+      const start = (safePage - 1) * pageSize;
+      return {
+        items: items.slice(start, start + pageSize),
+        page: safePage,
+        totalPages
+      };
+    }
 
-      templatesList.querySelectorAll("[data-template-detail]").forEach((button) => {
-        button.addEventListener("click", () => showTemplateDetail(button.dataset.templateDetail));
-      });
-      templatesList.querySelectorAll("[data-template-toggle]").forEach((button) => {
-        button.addEventListener("click", () => toggleTemplate(button.dataset.templateToggle, button.dataset.nextState));
+    function getFilteredTemplates() {
+      const search = templateSearch.value.trim().toLowerCase();
+      const status = templateStatusFilter.value;
+      return state.templates.filter((item) => {
+        if (status && item.lifecycle_status !== status) return false;
+        if (!search) return true;
+        const haystack = [item.template_id, item.site_id, item.template_key, item.scenario, item.page_type]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(search);
       });
     }
 
-    function renderCandidates(candidates) {
-      if (!candidates.length) {
-        candidatesList.innerHTML = '<div class="empty">当前还没有候选模板。执行一次未知页面抽取后会自动产生。</div>';
+    function getFilteredCandidates() {
+      const search = candidateSearch.value.trim().toLowerCase();
+      return state.candidates.filter((item) => {
+        if (!search) return true;
+        const haystack = [item.candidate_id, item.site_id, item.source_url, item.scenario]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(search);
+      });
+    }
+
+    function renderTemplates() {
+      const filtered = getFilteredTemplates();
+      const pageSize = Number(templatePageSize.value || 10);
+      const view = paginate(filtered, state.templatePage, pageSize);
+      state.templatePage = view.page;
+      templateMeta.textContent = `共 ${filtered.length} 个模板，已选 ${state.selectedTemplateIds.size} 个。`;
+      templatePagerText.textContent = `第 ${view.page} / ${view.totalPages} 页`;
+      templatePrevBtn.disabled = view.page <= 1;
+      templateNextBtn.disabled = view.page >= view.totalPages;
+
+      if (!filtered.length) {
+        templatesTableBody.innerHTML = '<tr><td colspan="7"><div class="empty">没有符合条件的模板。</div></td></tr>';
+        selectAllTemplates.checked = false;
         return;
       }
-      candidatesList.innerHTML = candidates.map((item) => {
-        const extractedFields = Array.isArray(item.extracted_fields) ? item.extracted_fields.join(", ") : "";
+
+      templatesTableBody.innerHTML = view.items.map((item) => {
+        const selected = state.selectedTemplateIds.has(item.template_id) ? "checked" : "";
+        const requiredFields = Array.isArray(item.required_fields) ? item.required_fields.join(", ") : "";
+        const statusClass = item.active ? "success" : item.lifecycle_status === "archived" ? "warning" : "muted";
         return `
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3 class="card-title">${escapeHtml(item.candidate_id)}</h3>
-                <div class="card-meta">
-                  <span>${escapeHtml(item.site_id)} · ${escapeHtml(item.scenario)}</span>
-                  <span>source_url: ${escapeHtml(item.source_url || "-")}</span>
-                  <span>fields: ${escapeHtml(extractedFields || "-")}</span>
-                </div>
+          <tr>
+            <td class="checkbox-cell"><input type="checkbox" data-template-checkbox="${escapeHtml(item.template_id)}" ${selected} /></td>
+            <td>
+              <div class="row-title">${escapeHtml(item.template_id)}</div>
+              <div class="row-subtitle">${escapeHtml(item.template_key || "-")}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(item.site_id)}</div>
+              <div class="row-subtitle">${escapeHtml(item.scenario)}</div>
+            </td>
+            <td><span class="pill ${statusClass}">${escapeHtml(item.lifecycle_status)}</span></td>
+            <td>${escapeHtml(item.version || "-")}</td>
+            <td>${escapeHtml(requiredFields || "-")}</td>
+            <td>
+              <div class="row-actions">
+                <button class="ghost" type="button" data-template-detail="${escapeHtml(item.template_id)}">详情</button>
+                <button class="warning-button" type="button" data-template-delete="${escapeHtml(item.template_id)}">删除</button>
               </div>
-              <span class="pill warning">候选</span>
-            </div>
-            <div class="toolbar">
-              <button class="ghost" type="button" data-candidate-detail="${escapeHtml(item.candidate_id)}">查看详情</button>
-              <button class="secondary" type="button" data-candidate-promote="${escapeHtml(item.candidate_id)}">晋升模板</button>
-            </div>
-          </div>
+            </td>
+          </tr>
         `;
       }).join("");
 
-      candidatesList.querySelectorAll("[data-candidate-detail]").forEach((button) => {
+      templatesTableBody.querySelectorAll("[data-template-checkbox]").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) {
+            state.selectedTemplateIds.add(checkbox.dataset.templateCheckbox);
+          } else {
+            state.selectedTemplateIds.delete(checkbox.dataset.templateCheckbox);
+          }
+          renderTemplates();
+        });
+      });
+      templatesTableBody.querySelectorAll("[data-template-detail]").forEach((button) => {
+        button.addEventListener("click", () => showTemplateDetail(button.dataset.templateDetail));
+      });
+      templatesTableBody.querySelectorAll("[data-template-delete]").forEach((button) => {
+        button.addEventListener("click", () => deleteTemplate(button.dataset.templateDelete));
+      });
+
+      const visibleIds = view.items.map((item) => item.template_id);
+      selectAllTemplates.checked = visibleIds.length > 0 && visibleIds.every((id) => state.selectedTemplateIds.has(id));
+    }
+
+    function renderCandidates() {
+      const filtered = getFilteredCandidates();
+      const pageSize = Number(candidatePageSize.value || 10);
+      const view = paginate(filtered, state.candidatePage, pageSize);
+      state.candidatePage = view.page;
+      candidateMeta.textContent = `共 ${filtered.length} 个候选模板。`;
+      candidatePagerText.textContent = `第 ${view.page} / ${view.totalPages} 页`;
+      candidatePrevBtn.disabled = view.page <= 1;
+      candidateNextBtn.disabled = view.page >= view.totalPages;
+
+      if (!filtered.length) {
+        candidatesTableBody.innerHTML = '<tr><td colspan="4"><div class="empty">没有符合条件的候选模板。</div></td></tr>';
+        return;
+      }
+
+      candidatesTableBody.innerHTML = view.items.map((item) => {
+        const extractedFields = Array.isArray(item.extracted_fields) ? item.extracted_fields.join(", ") : "";
+        return `
+          <tr>
+            <td>
+              <div class="row-title">${escapeHtml(item.candidate_id)}</div>
+              <div class="row-subtitle">${escapeHtml(item.source_url || "-")}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(item.site_id)}</div>
+              <div class="row-subtitle">${escapeHtml(item.scenario)}</div>
+            </td>
+            <td>${escapeHtml(extractedFields || "-")}</td>
+            <td>
+              <div class="row-actions">
+                <button class="ghost" type="button" data-candidate-detail="${escapeHtml(item.candidate_id)}">详情</button>
+                <button class="secondary" type="button" data-candidate-promote="${escapeHtml(item.candidate_id)}">晋升</button>
+                <button class="warning-button" type="button" data-candidate-delete="${escapeHtml(item.candidate_id)}">删除</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      candidatesTableBody.querySelectorAll("[data-candidate-detail]").forEach((button) => {
         button.addEventListener("click", () => showCandidateDetail(button.dataset.candidateDetail));
       });
-      candidatesList.querySelectorAll("[data-candidate-promote]").forEach((button) => {
+      candidatesTableBody.querySelectorAll("[data-candidate-promote]").forEach((button) => {
         button.addEventListener("click", () => promoteCandidate(button.dataset.candidatePromote));
+      });
+      candidatesTableBody.querySelectorAll("[data-candidate-delete]").forEach((button) => {
+        button.addEventListener("click", () => deleteCandidate(button.dataset.candidateDelete));
       });
     }
 
     async function loadTemplates() {
-      templatesList.innerHTML = '<div class="empty">正在加载正式模板...</div>';
       try {
         const payload = await requestJson("/templates");
-        renderTemplates(payload.templates || []);
+        state.templates = payload.templates || [];
+        state.selectedTemplateIds.forEach((id) => {
+          if (!state.templates.find((item) => item.template_id === id)) {
+            state.selectedTemplateIds.delete(id);
+          }
+        });
+        renderTemplates();
       } catch (error) {
-        templatesList.innerHTML = `<div class="empty">模板加载失败: ${escapeHtml(String(error))}</div>`;
+        templatesTableBody.innerHTML = `<tr><td colspan="7"><div class="empty">模板加载失败: ${escapeHtml(String(error))}</div></td></tr>`;
       }
     }
 
     async function loadCandidates() {
-      candidatesList.innerHTML = '<div class="empty">正在加载候选模板...</div>';
       try {
         const payload = await requestJson("/template-candidates");
-        renderCandidates(payload.candidates || []);
+        state.candidates = payload.candidates || [];
+        renderCandidates();
       } catch (error) {
-        candidatesList.innerHTML = `<div class="empty">候选模板加载失败: ${escapeHtml(String(error))}</div>`;
+        candidatesTableBody.innerHTML = `<tr><td colspan="4"><div class="empty">候选模板加载失败: ${escapeHtml(String(error))}</div></td></tr>`;
       }
     }
 
@@ -446,17 +688,47 @@ def build_web_ui_html() -> str:
       }
     }
 
-    async function toggleTemplate(templateId, nextState) {
+    async function deleteTemplate(templateId) {
+      if (!window.confirm(`确认删除模板 ${templateId} 吗？`)) return;
       try {
-        const payload = await requestJson(`/templates/${encodeURIComponent(templateId)}/${nextState}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: "{}"
-        });
-        setDetail(`模板 ${templateId}`, payload, `模板已${nextState === "activate" ? "启用" : "停用"}。`);
+        const payload = await requestNoContent(`/templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
+        state.selectedTemplateIds.delete(templateId);
+        setDetail(`删除 ${templateId}`, payload, "模板已删除。");
         await loadTemplates();
       } catch (error) {
-        setDetail("模板状态更新失败", { error: String(error) }, "无法更新模板状态。");
+        setDetail("模板删除失败", { error: String(error) }, "无法删除模板。");
+      }
+    }
+
+    async function deleteSelectedTemplates() {
+      const templateIds = Array.from(state.selectedTemplateIds);
+      if (!templateIds.length) {
+        setDetail("批量删除", { message: "未选择模板" }, "请先勾选需要删除的模板。");
+        return;
+      }
+      if (!window.confirm(`确认删除选中的 ${templateIds.length} 个模板吗？`)) return;
+      try {
+        const payload = await requestJson("/templates/delete-batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ template_ids: templateIds })
+        });
+        state.selectedTemplateIds.clear();
+        setDetail("批量删除模板", payload, "选中的模板已删除。");
+        await loadTemplates();
+      } catch (error) {
+        setDetail("批量删除失败", { error: String(error) }, "无法批量删除模板。");
+      }
+    }
+
+    async function deleteCandidate(candidateId) {
+      if (!window.confirm(`确认删除候选模板 ${candidateId} 吗？`)) return;
+      try {
+        const payload = await requestNoContent(`/template-candidates/${encodeURIComponent(candidateId)}`, { method: "DELETE" });
+        setDetail(`删除候选 ${candidateId}`, payload, "候选模板已删除。");
+        await loadCandidates();
+      } catch (error) {
+        setDetail("候选模板删除失败", { error: String(error) }, "无法删除候选模板。");
       }
     }
 
@@ -533,8 +805,62 @@ def build_web_ui_html() -> str:
       }
     });
 
+    [templateSearch, templateStatusFilter, templatePageSize].forEach((node) => {
+      node.addEventListener("input", () => {
+        state.templatePage = 1;
+        renderTemplates();
+      });
+      node.addEventListener("change", () => {
+        state.templatePage = 1;
+        renderTemplates();
+      });
+    });
+
+    [candidateSearch, candidatePageSize].forEach((node) => {
+      node.addEventListener("input", () => {
+        state.candidatePage = 1;
+        renderCandidates();
+      });
+      node.addEventListener("change", () => {
+        state.candidatePage = 1;
+        renderCandidates();
+      });
+    });
+
+    templatePrevBtn.addEventListener("click", () => {
+      state.templatePage -= 1;
+      renderTemplates();
+    });
+    templateNextBtn.addEventListener("click", () => {
+      state.templatePage += 1;
+      renderTemplates();
+    });
+    candidatePrevBtn.addEventListener("click", () => {
+      state.candidatePage -= 1;
+      renderCandidates();
+    });
+    candidateNextBtn.addEventListener("click", () => {
+      state.candidatePage += 1;
+      renderCandidates();
+    });
+    selectAllTemplates.addEventListener("change", () => {
+      const filtered = getFilteredTemplates();
+      const pageSize = Number(templatePageSize.value || 10);
+      const view = paginate(filtered, state.templatePage, pageSize);
+      view.items.forEach((item) => {
+        if (selectAllTemplates.checked) {
+          state.selectedTemplateIds.add(item.template_id);
+        } else {
+          state.selectedTemplateIds.delete(item.template_id);
+        }
+      });
+      renderTemplates();
+    });
+
+    deleteSelectedTemplatesBtn.addEventListener("click", deleteSelectedTemplates);
     refreshTemplatesBtn.addEventListener("click", loadTemplates);
     refreshCandidatesBtn.addEventListener("click", loadCandidates);
+
     loadTemplates();
     loadCandidates();
   </script>
