@@ -67,6 +67,18 @@ class WrappedObjectFallbackExtractor(BaseFallbackExtractor):
         )
 
 
+class WrappedDoctorFallbackExtractor(BaseFallbackExtractor):
+    def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
+        return ExtractionResult(
+            data={
+                "content": {
+                    "姓名": "苏惠萍",
+                    "简介": "苏惠萍，主任医师。",
+                }
+            }
+        )
+
+
 def test_engine_uses_deterministic_parser_for_known_template():
     html = Path("tests/fixtures/dayi_disease_sample.html").read_text(encoding="utf-8")
     engine = HybridExtractionEngine(fallback_extractor=FakeFallbackExtractor())
@@ -404,3 +416,41 @@ def test_engine_preserves_dsl_plan_when_backfilling_missing_fingerprint(tmp_path
     assert stored_manifest is not None
     assert stored_manifest.extraction_plan is not None
     assert len(stored_manifest.extraction_plan.fields) == 2
+
+
+def test_engine_validates_unwrapped_llm_content_payload(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    manifest = TemplateManifest(
+        template_id="doctor_family_v1",
+        parser_key="generic:rule",
+        site_id="example.com",
+        site_name="example.com",
+        page_type="article_page",
+        scenario="article_detail",
+        version="v1",
+        template_key="doctor_family",
+        lifecycle_status="active",
+        active=True,
+        required_fields=["姓名", "简介"],
+    )
+    service.upsert_manifest(manifest)
+    engine = HybridExtractionEngine(
+        fallback_extractor=WrappedDoctorFallbackExtractor(),
+        template_service=service,
+    )
+    request = ExtractionRequest(
+        url="https://example.com/doctor/1",
+        raw_html="<html><body><h1>Doctor</h1></body></html>",
+        user_prompt="extract doctor info",
+    )
+
+    response = engine.extract(request)
+    assert response.status == "success"
+    assert response.extractor_type == "llm"
+    assert response.data["姓名"] == "苏惠萍"
+    assert response.data["简介"] == "苏惠萍，主任医师。"
+    assert response.validation_report.passed is True

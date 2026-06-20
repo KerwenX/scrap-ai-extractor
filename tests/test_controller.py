@@ -180,6 +180,25 @@ def test_template_key_auto_generation_uses_page_type_and_url_hash_family_key(tmp
     assert manifest.required_fields == ["title"]
 
 
+def test_historical_manifest_required_fields_are_normalized_to_executable_plan(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    candidate = _build_candidate("candidate-1", dom_signature="abc123def4567890")
+    manifest = service.promote_candidate_instance(
+        candidate,
+        template_key="doctor_family",
+        required_fields=["title", "abstract", "hospital", "department"],
+    )
+    assert manifest is not None
+
+    loaded = service.get_manifest(manifest.template_id)
+    assert loaded is not None
+    assert loaded.required_fields == ["title"]
+
+
 def test_controller_reports_candidate_not_promotable_reason(tmp_path):
     service = TemplateService(
         template_dir=tmp_path / "templates",

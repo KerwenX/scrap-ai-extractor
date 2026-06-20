@@ -151,13 +151,14 @@ class HybridExtractionEngine:
             )
 
         llm_result = self.fallback_extractor.extract(request, intent)
-        llm_validation = validate_data(llm_result.data, required_fields)
+        candidate_seed_data = self._prepare_candidate_seed_data(llm_result.data)
+        normalized_llm_data = candidate_seed_data if candidate_seed_data else llm_result.data
+        llm_validation = validate_data(normalized_llm_data, required_fields)
         debug_trace["llm_validation"] = llm_validation.model_dump()
         candidate_path = None
         solidified_manifest = None
 
         if llm_validation.passed:
-            candidate_seed_data = self._prepare_candidate_seed_data(llm_result.data)
             analysis = self._build_candidate_analysis(soup, candidate_seed_data)
             proposed_plan = self._build_candidate_plan(soup, candidate_seed_data, analysis)
             candidate = TemplateCandidate(
@@ -216,7 +217,7 @@ class HybridExtractionEngine:
             extractor_type=extractor_type,
             confidence=round(0.55 + 0.35 * llm_validation.coverage, 3),
             drift_detected=drift_detected,
-            data=llm_result.data,
+            data=normalized_llm_data,
             validation_report=llm_validation,
             debug_trace=debug_trace,
         )
@@ -309,7 +310,7 @@ class HybridExtractionEngine:
         fallback_fields: list[str] = []
 
         for field_name, value in data.items():
-            selector_candidates = self._infer_selector_candidates(soup, value)
+            selector_candidates = self._infer_selector_candidates(soup, field_name, value)
             likely_anchors = [f"{rule.kind}:{rule.value}" for rule in selector_candidates]
             if likely_anchors:
                 feasibility = "high"
@@ -348,7 +349,7 @@ class HybridExtractionEngine:
         field_rules: list[FieldRule] = []
 
         for field_name, value in data.items():
-            selectors = self._infer_selector_candidates(soup, value)
+            selectors = self._infer_selector_candidates(soup, field_name, value)
             if not selectors:
                 continue
             postprocess = [PostProcessStep(op="strip")]
@@ -394,11 +395,25 @@ class HybridExtractionEngine:
             return "object"
         return "unknown"
 
-    def _infer_selector_candidates(self, soup, value) -> list[FieldSelectorRule]:
-        selector = self._infer_single_selector(soup, value)
-        return [selector] if selector else []
+    def _infer_selector_candidates(self, soup, field_name: str, value) -> list[FieldSelectorRule]:
+        selectors: list[FieldSelectorRule] = []
 
-    def _infer_single_selector(self, soup, value) -> FieldSelectorRule | None:
+        label_selector = self._infer_label_selector_by_field_name(soup, field_name)
+        if label_selector is not None:
+            selectors.append(label_selector)
+
+        selector = self._infer_single_selector(soup, field_name, value)
+        if selector and not any(
+            existing.kind == selector.kind and existing.value == selector.value for existing in selectors
+        ):
+            selectors.append(selector)
+
+        return selectors
+
+    def _infer_single_selector(self, soup, field_name: str, value) -> FieldSelectorRule | None:
+        label_selector = self._infer_label_selector_by_field_name(soup, field_name)
+        if label_selector is not None:
+            return label_selector
         scalar = self._to_scalar_text(value)
         if not scalar:
             return None
@@ -429,6 +444,27 @@ class HybridExtractionEngine:
         selector = self._build_css_selector(node, soup)
         if selector:
             return FieldSelectorRule(kind="css", value=selector)
+        return None
+
+    def _infer_label_selector_by_field_name(
+        self, soup, field_name: str
+    ) -> FieldSelectorRule | None:
+        normalized_field_name = normalize_text(field_name)
+        if not normalized_field_name:
+            return None
+
+        label_aliases = {
+            normalized_field_name,
+            normalized_field_name.rstrip("：:"),
+            f"{normalized_field_name}：",
+            f"{normalized_field_name}:",
+        }
+
+        for node in soup.find_all(["td", "th", "dt", "dd", "span", "div", "label", "strong", "b"]):
+            node_text = normalize_text(node.get_text(" ", strip=True))
+            compact_text = node_text.replace(" ", "")
+            if compact_text in {alias.replace(" ", "") for alias in label_aliases}:
+                return FieldSelectorRule(kind="label_value", value=normalized_field_name)
         return None
 
     def _to_scalar_text(self, value) -> str:

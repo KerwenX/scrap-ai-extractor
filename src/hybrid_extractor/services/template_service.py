@@ -367,7 +367,21 @@ class TemplateService:
             active = False
         else:
             active = manifest.active
-        return manifest.model_copy(update={"lifecycle_status": lifecycle_status, "active": active})
+        updates = {"lifecycle_status": lifecycle_status, "active": active}
+
+        if manifest.extraction_plan and manifest.extraction_plan.fields:
+            plan_fields = [field.field_name for field in manifest.extraction_plan.fields]
+            current_required = list(manifest.required_fields)
+            overlap = [field for field in current_required if field in plan_fields]
+
+            # Heal historical manifests whose required_fields were copied from LLM output
+            # but whose DSL only learned a much smaller executable subset.
+            if not current_required:
+                updates["required_fields"] = plan_fields
+            elif len(overlap) / len(current_required) < 0.6:
+                updates["required_fields"] = overlap if overlap else plan_fields
+
+        return manifest.model_copy(update=updates)
 
     def _slug(self, value: str) -> str:
         return "".join(ch if ch.isalnum() else "_" for ch in value).strip("_") or "unknown"
