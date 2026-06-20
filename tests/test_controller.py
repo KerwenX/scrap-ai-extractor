@@ -79,9 +79,14 @@ def test_controller_manages_templates_and_candidates(tmp_path):
 
     candidates_payload = controller.list_template_candidates()
     assert any(item["candidate_id"] == candidate.candidate_id for item in candidates_payload["candidates"])
+    listed_candidate = next(item for item in candidates_payload["candidates"] if item["candidate_id"] == candidate.candidate_id)
+    assert listed_candidate["promotion_check"]["promotable"] is False
+    assert listed_candidate["promotion_check"]["existing_template_id"] == manifest.template_id
 
     candidate_payload = controller.get_template_candidate(candidate.candidate_id)
     assert candidate_payload["sample_data"]["title"] == "Paper title"
+    assert candidate_payload["promotion_check"]["promotable"] is False
+    assert candidate_payload["promotion_check"]["existing_template_id"] == manifest.template_id
 
 
 def test_controller_promotes_candidate_with_versioned_template_key(tmp_path):
@@ -159,3 +164,42 @@ def test_controller_deletes_candidate(tmp_path):
     controller = ExtractionController(template_service=service)
     deleted = controller.delete_template_candidate(candidate.candidate_id)
     assert deleted["deleted"] is True
+
+
+def test_template_key_auto_generation_uses_page_type_and_url_hash_family_key(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    candidate = _build_candidate("candidate-1", dom_signature="abc123def4567890")
+    manifest = service.solidify_candidate(candidate, required_fields=["title"])
+    assert manifest is not None
+    assert manifest.template_key.startswith("example_com_article_detail_detail_page_")
+    assert not manifest.template_key.endswith("_abc123def456")
+    assert manifest.required_fields == ["title"]
+
+
+def test_controller_reports_candidate_not_promotable_reason(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    candidate = _build_candidate("candidate-1").model_copy(
+        update={"proposed_plan": None}
+    )
+    service.persist_candidate(candidate)
+    controller = ExtractionController(template_service=service)
+
+    listed = controller.list_template_candidates()["candidates"][0]
+    assert listed["promotion_check"]["promotable"] is False
+    assert "proposed_plan" in listed["promotion_check"]["reasons"][0]
+
+    try:
+        controller.promote_template_candidate(candidate.candidate_id, {})
+    except ValueError as exc:
+        assert "not promotable" in str(exc)
+        assert "proposed_plan" in str(exc)
+    else:
+        raise AssertionError("Expected promotion to fail for candidate without proposed_plan")

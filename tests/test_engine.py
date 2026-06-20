@@ -21,10 +21,10 @@ class FakeFallbackExtractor(BaseFallbackExtractor):
     def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
         return ExtractionResult(
             data={
-                "name": "未知疾病",
-                "summary": "这是回退结果",
-                "symptoms": ["症状A"],
-                "treatment": ["治疗A"],
+                "name": "Unknown Disease",
+                "summary": "Fallback summary",
+                "symptoms": ["Symptom A"],
+                "treatment": ["Treatment A"],
                 "result": "fallback",
             }
         )
@@ -34,8 +34,8 @@ class GenericFallbackExtractor(BaseFallbackExtractor):
     def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
         return ExtractionResult(
             data={
-                "title": "论文标题",
-                "content": "这是一个通用抽取结果",
+                "title": "Paper Title",
+                "content": "Generic extracted content",
             }
         )
 
@@ -44,12 +44,25 @@ class SolidifyingFallbackExtractor(BaseFallbackExtractor):
     def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
         return ExtractionResult(
             data={
-                "name": "自定义病名",
-                "summary": "这是页面摘要",
-                "causes": "病因内容",
-                "symptoms": "症状内容",
-                "diagnosis": "诊断内容",
-                "treatment": "治疗内容",
+                "name": "Custom Disease",
+                "summary": "Page summary",
+                "causes": "Cause content",
+                "symptoms": "Symptom content",
+                "diagnosis": "Diagnosis content",
+                "treatment": "Treatment content",
+            }
+        )
+
+
+class WrappedObjectFallbackExtractor(BaseFallbackExtractor):
+    def extract(self, request: ExtractionRequest, intent: ExtractionIntent) -> ExtractionResult:
+        return ExtractionResult(
+            data={
+                "content": {
+                    "name": "Miao Yang",
+                    "department": "Cardiology",
+                    "practice_location": "Xiyuan Hospital",
+                }
             }
         )
 
@@ -60,7 +73,7 @@ def test_engine_uses_deterministic_parser_for_known_template():
     request = ExtractionRequest(
         url="https://www.dayi.org.cn/symptom/123.html",
         raw_html=html,
-        user_prompt="提取疾病基本信息、病因、症状、治疗和预防",
+        user_prompt="Extract disease information, causes, symptoms, treatment and prevention",
     )
     response = engine.extract(request)
     assert response.status == "success"
@@ -78,12 +91,12 @@ def test_engine_falls_back_for_unknown_template():
     request = ExtractionRequest(
         url="https://example.com/1",
         raw_html=html,
-        user_prompt="提取疾病基本信息、症状、治疗",
+        user_prompt="Extract disease information, symptoms and treatment",
     )
     response = engine.extract(request)
     assert response.status == "success"
     assert response.extractor_type == "llm"
-    assert response.data["name"] == "未知疾病"
+    assert response.data["name"] == "Unknown Disease"
     assert response.debug_trace["prompt_version"] == "v1"
     assert response.debug_trace["template_analysis"]["summary"]
     assert response.debug_trace["template_analysis_prompt"]
@@ -101,20 +114,20 @@ def test_engine_auto_solidifies_and_reuses_manifest(tmp_path):
     <html>
       <head>
         <title>Custom Disease Page</title>
-        <meta name="description" content="这是页面摘要">
+        <meta name="description" content="Page summary">
       </head>
       <body>
-        <h1>自定义病名</h1>
+        <h1>Custom Disease</h1>
         <div class="van-tabs__nav">
-          <div role="tab"><span class="van-tab__text">病因</span></div>
-          <div role="tab"><span class="van-tab__text">症状</span></div>
-          <div role="tab"><span class="van-tab__text">诊断</span></div>
-          <div role="tab"><span class="van-tab__text">治疗</span></div>
+          <div role="tab"><span class="van-tab__text">Causes</span></div>
+          <div role="tab"><span class="van-tab__text">Symptoms</span></div>
+          <div role="tab"><span class="van-tab__text">Diagnosis</span></div>
+          <div role="tab"><span class="van-tab__text">Treatment</span></div>
         </div>
-        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">病因内容</div></div>
-        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">症状内容</div></div>
-        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">诊断内容</div></div>
-        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">治疗内容</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">Cause content</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">Symptom content</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">Diagnosis content</div></div>
+        <div class="van-tab__pane-wrapper"><div class="van-tab__pane">Treatment content</div></div>
       </body>
     </html>
     """
@@ -130,7 +143,7 @@ def test_engine_auto_solidifies_and_reuses_manifest(tmp_path):
     request = ExtractionRequest(
         url="https://example.com/custom-disease",
         raw_html=html,
-        user_prompt="提取疾病基本信息、病因、症状、诊断、治疗",
+        user_prompt="Extract disease information, causes, symptoms, diagnosis and treatment",
     )
 
     first_response = engine.extract(request)
@@ -142,9 +155,9 @@ def test_engine_auto_solidifies_and_reuses_manifest(tmp_path):
     assert second_response.status == "success"
     assert second_response.extractor_type == "deterministic"
     assert second_response.template_id == first_response.debug_trace["solidified_template_id"]
-    assert second_response.data["name"] == "自定义病名"
-    assert second_response.data["symptoms"] == "症状内容"
-    assert second_response.data["treatment"] == "治疗内容"
+    assert second_response.data["name"] == "Custom Disease"
+    assert second_response.data["symptoms"] == "Symptom content"
+    assert second_response.data["treatment"] == "Treatment content"
 
 
 def test_engine_uses_deterministic_parser_for_known_qa_template():
@@ -153,7 +166,7 @@ def test_engine_uses_deterministic_parser_for_known_qa_template():
     request = ExtractionRequest(
         url="https://www.dayi.org.cn/qa/123.html",
         raw_html=html,
-        user_prompt="提取问答摘要",
+        user_prompt="Extract the Q&A summary",
     )
     response = engine.extract(request)
     assert response.status == "success"
@@ -168,15 +181,15 @@ def test_engine_allows_generic_unknown_page_without_fixed_required_fields():
     request = ExtractionRequest(
         url="https://example.com/article/1",
         raw_html=html,
-        user_prompt="这是一个论文网页，提取页面有关的所有信息",
+        user_prompt="This is a paper page, extract all page information",
     )
     response = engine.extract(request)
     assert response.status == "success"
     assert response.extractor_type == "llm"
-    assert response.data["title"] == "论文标题"
+    assert response.data["title"] == "Paper Title"
 
 
-def test_engine_falls_back_when_fingerprint_similarity_is_low_but_still_matched(tmp_path):
+def test_engine_keeps_dsl_result_when_fingerprint_similarity_is_low_but_validation_passes(tmp_path):
     html = "<html><head><title>Article</title></head><body><h1>Paper</h1><div id='content'>Body</div></body></html>"
     soup = build_soup(html)
     fingerprint = build_fingerprint(soup)
@@ -221,12 +234,173 @@ def test_engine_falls_back_when_fingerprint_similarity_is_low_but_still_matched(
     request = ExtractionRequest(
         url="https://example.com/article/1",
         raw_html=html,
-        user_prompt="提取标题",
+        user_prompt="extract title",
     )
 
     response = engine.extract(request)
     assert response.status == "success"
-    assert response.extractor_type == "hybrid"
-    assert response.drift_detected is True
-    assert response.debug_trace["drift_report"]["reason"] == "fingerprint_similarity_low"
-    assert response.data["title"] == "论文标题"
+    assert response.extractor_type == "deterministic"
+    assert response.drift_detected is False
+    assert response.debug_trace["drift_report"]["reason"] == "stable_valid_dsl"
+    assert response.data["title"] == "Paper"
+
+
+def test_engine_unwraps_generic_content_object_for_candidate_plan(tmp_path):
+    html = """
+    <html>
+      <body>
+        <h1>Miao Yang</h1>
+        <div id="department">Cardiology</div>
+        <div id="hospital">Xiyuan Hospital</div>
+      </body>
+    </html>
+    """
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    engine = HybridExtractionEngine(
+        fallback_extractor=WrappedObjectFallbackExtractor(),
+        template_service=service,
+    )
+    request = ExtractionRequest(
+        url="https://m.dayi.org.cn/doctor/1125751",
+        raw_html=html,
+        user_prompt="Extract doctor name, department and practice location",
+    )
+    response = engine.extract(request)
+    assert response.status == "success"
+    candidate_path = Path(response.debug_trace["template_candidate_path"])
+    candidate_payload = candidate_path.read_text(encoding="utf-8")
+    assert '"name"' in candidate_payload
+    assert '"department"' in candidate_payload
+    assert '"proposed_plan"' in candidate_payload
+
+
+def test_engine_reuses_dsl_template_with_low_fingerprint_when_validation_passes(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    manifest = TemplateManifest(
+        template_id="doctor_family_v1",
+        parser_key="generic:rule",
+        site_id="m.dayi.org.cn",
+        site_name="m.dayi.org.cn",
+        page_type="article_page",
+        scenario="article_detail",
+        version="v1",
+        template_key="m_dayi_org_cn_article_detail_article_page_0403cf10",
+        lifecycle_status="active",
+        active=True,
+        fingerprint=PageFingerprint(
+            dom_signature="1111222233334444",
+            headings=["Another page"],
+            key_ids=["_intro"],
+            key_classes=["item-content"],
+        ),
+        required_fields=["姓名", "简介"],
+        extraction_plan=ExtractionPlan(
+            fields=[
+                FieldRule(field_name="姓名", selectors=[FieldSelectorRule(kind="css", value="h1")]),
+                FieldRule(field_name="简介", selectors=[FieldSelectorRule(kind="id", value="_intro")]),
+            ]
+        ),
+    )
+    service.upsert_manifest(manifest)
+    engine = HybridExtractionEngine(
+        fallback_extractor=GenericFallbackExtractor(),
+        template_service=service,
+    )
+    request = ExtractionRequest(
+        url="https://m.dayi.org.cn/doctor/1150764",
+        raw_html="""
+        <html>
+          <head><title>Doctor Detail</title><meta name="description" content="Su Huiping, chief physician."></head>
+          <body>
+            <h1>Su Huiping</h1>
+            <div id="_intro">Su Huiping, chief physician.</div>
+          </body>
+        </html>
+        """,
+        user_prompt="Extract doctor name and profile",
+    )
+
+    response = engine.extract(request)
+    assert response.status == "success"
+    assert response.extractor_type == "deterministic"
+    assert response.template_id == "doctor_family_v1"
+    assert response.data["姓名"] == "Su Huiping"
+    assert response.data["简介"] == "Su Huiping, chief physician."
+    assert response.debug_trace["drift_report"]["reason"] in {"stable_valid_dsl", "fingerprint_similarity_low_but_valid_dsl"}
+
+
+def test_engine_preserves_dsl_plan_when_backfilling_missing_fingerprint(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    manifest = TemplateManifest(
+        template_id="paper_family_v1",
+        parser_key="generic:rule",
+        site_id="example.com",
+        site_name="example.com",
+        page_type="article_page",
+        scenario="article_detail",
+        version="v1",
+        template_key="paper_family",
+        lifecycle_status="active",
+        active=True,
+        required_fields=["title", "author"],
+        extraction_plan=ExtractionPlan(
+            fields=[
+                FieldRule(field_name="title", selectors=[FieldSelectorRule(kind="css", value="h1")]),
+                FieldRule(field_name="author", selectors=[FieldSelectorRule(kind="label_value", value="作者")]),
+            ]
+        ),
+    )
+    service.upsert_manifest(manifest)
+    engine = HybridExtractionEngine(
+        fallback_extractor=GenericFallbackExtractor(),
+        template_service=service,
+    )
+    request = ExtractionRequest(
+        url="https://example.com/paper/1",
+        raw_html="""
+        <html>
+          <body>
+            <h1>Paper One</h1>
+            <table><tr><td>作者</td><td>Alice</td></tr></table>
+          </body>
+        </html>
+        """,
+        user_prompt="extract paper info",
+    )
+
+    first_response = engine.extract(request)
+    second_response = engine.extract(
+        request.model_copy(
+            update={
+                "raw_html": """
+                <html>
+                  <body>
+                    <h1>Paper Two</h1>
+                    <table><tr><td>作者</td><td>Bob</td></tr></table>
+                  </body>
+                </html>
+                """
+            }
+        )
+    )
+
+    stored_manifest = service.get_manifest("paper_family_v1")
+    assert first_response.extractor_type == "deterministic"
+    assert second_response.extractor_type == "deterministic"
+    assert second_response.data["title"] == "Paper Two"
+    assert second_response.data["author"] == "Bob"
+    assert stored_manifest is not None
+    assert stored_manifest.extraction_plan is not None
+    assert len(stored_manifest.extraction_plan.fields) == 2

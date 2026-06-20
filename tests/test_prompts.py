@@ -16,6 +16,8 @@ def test_build_extraction_prompt_includes_contract_and_user_requirement():
     assert "Return valid JSON only" in prompt
     assert "title, summary, authors" in prompt
     assert "\u63d0\u53d6\u75be\u75c5\u75c7\u72b6\u548c\u6cbb\u7597" in prompt
+    assert "prefer Chinese field names" in prompt
+    assert "\u6807\u9898\u3001\u4f5c\u8005\u3001\u6458\u8981\u3001\u533b\u751f" in prompt
 
 
 def test_build_template_plan_prompt_includes_fields():

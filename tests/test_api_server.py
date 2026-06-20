@@ -81,6 +81,10 @@ def test_api_server_health_and_template_management_responses():
                 html = response.read().decode("utf-8")
                 assert "<title>混合网页解析器</title>" in html
                 assert "删除选中" in html
+                assert 'id="detailSummary"' in html
+                assert "buildDetailSummary" in html
+                assert 'id="progressList"' in html
+                assert "pushResponseProgress" in html
 
             with urllib.request.urlopen(f"{base_url}/templates") as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -89,6 +93,9 @@ def test_api_server_health_and_template_management_responses():
             with urllib.request.urlopen(f"{base_url}/template-candidates") as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 assert any(item["candidate_id"] == candidate.candidate_id for item in payload["candidates"])
+                listed_candidate = next(item for item in payload["candidates"] if item["candidate_id"] == candidate.candidate_id)
+                assert listed_candidate["promotion_check"]["promotable"] is False
+                assert listed_candidate["promotion_check"]["existing_template_id"] == manifest.template_id
 
             promote_body = json.dumps(
                 {

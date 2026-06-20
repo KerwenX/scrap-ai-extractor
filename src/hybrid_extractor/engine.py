@@ -84,6 +84,7 @@ class HybridExtractionEngine:
                 validation.coverage,
                 validation.passed,
                 has_fingerprint=bool(manifest and manifest.fingerprint),
+                is_dsl_template=bool(manifest and manifest.extraction_plan is not None),
             )
             debug_trace["drift_report"] = drift_report
 
@@ -91,19 +92,40 @@ class HybridExtractionEngine:
                 stored_manifest_path = None
                 existing_manifest = manifest
                 if existing_manifest is None or existing_manifest.fingerprint is None:
-                    manifest = TemplateManifest(
-                        template_id=match.template_id,
-                        parser_key=parser.parser_key,
-                        site_id=match.site_id,
-                        site_name=match.site_name,
-                        page_type=match.page_type,
-                        scenario=match.scenario,
-                        version=match.version,
-                        lifecycle_status="active",
-                        fingerprint=fingerprint,
-                        required_fields=list(required_fields),
-                        notes="Auto-captured from a successful deterministic parsing run.",
-                    )
+                    if existing_manifest is not None:
+                        manifest = existing_manifest.model_copy(
+                            update={
+                                "fingerprint": fingerprint,
+                                "required_fields": list(required_fields)
+                                or existing_manifest.required_fields,
+                                "notes": (
+                                    existing_manifest.notes
+                                    or "Auto-captured from a successful deterministic parsing run."
+                                ),
+                            }
+                        )
+                    else:
+                        extraction_plan = getattr(getattr(parser, "manifest", None), "extraction_plan", None)
+                        template_key = getattr(getattr(parser, "manifest", None), "template_key", "")
+                        source_candidate_id = getattr(
+                            getattr(parser, "manifest", None), "source_candidate_id", None
+                        )
+                        manifest = TemplateManifest(
+                            template_id=match.template_id,
+                            parser_key=parser.parser_key,
+                            site_id=match.site_id,
+                            site_name=match.site_name,
+                            page_type=match.page_type,
+                            scenario=match.scenario,
+                            version=match.version,
+                            template_key=template_key,
+                            lifecycle_status="active",
+                            fingerprint=fingerprint,
+                            required_fields=list(required_fields),
+                            extraction_plan=extraction_plan,
+                            notes="Auto-captured from a successful deterministic parsing run.",
+                            source_candidate_id=source_candidate_id,
+                        )
                     stored_manifest_path = str(self.template_service.upsert_manifest(manifest))
                     debug_trace["template_manifest_path"] = stored_manifest_path
 
@@ -135,8 +157,9 @@ class HybridExtractionEngine:
         solidified_manifest = None
 
         if llm_validation.passed:
-            analysis = self._build_candidate_analysis(soup, llm_result.data)
-            proposed_plan = self._build_candidate_plan(soup, llm_result.data, analysis)
+            candidate_seed_data = self._prepare_candidate_seed_data(llm_result.data)
+            analysis = self._build_candidate_analysis(soup, candidate_seed_data)
+            proposed_plan = self._build_candidate_plan(soup, candidate_seed_data, analysis)
             candidate = TemplateCandidate(
                 request_id=request.request_id,
                 site_id=classification.site_id,
@@ -146,8 +169,8 @@ class HybridExtractionEngine:
                 user_prompt=request.user_prompt,
                 source_url=request.url,
                 fingerprint=fingerprint,
-                extracted_fields=sorted(llm_result.data.keys()),
-                sample_data=dict(list(llm_result.data.items())[:8]),
+                extracted_fields=sorted(candidate_seed_data.keys()),
+                sample_data=dict(list(candidate_seed_data.items())[:8]),
                 analysis=analysis,
                 proposed_plan=proposed_plan,
             )
@@ -155,10 +178,10 @@ class HybridExtractionEngine:
             debug_trace["template_candidate_path"] = candidate_path
             debug_trace["template_analysis"] = analysis.model_dump() if analysis else None
             debug_trace["template_analysis_prompt"] = build_template_analysis_prompt(
-                request.user_prompt, sorted(llm_result.data.keys())
+                request.user_prompt, sorted(candidate_seed_data.keys())
             )
             debug_trace["template_plan_prompt"] = build_template_plan_prompt(
-                request.user_prompt, sorted(llm_result.data.keys())
+                request.user_prompt, sorted(candidate_seed_data.keys())
             )
             solidified_manifest = self.template_service.solidify_candidate(
                 candidate,
@@ -212,6 +235,7 @@ class HybridExtractionEngine:
         validation_coverage: float,
         validation_passed: bool,
         has_fingerprint: bool,
+        is_dsl_template: bool = False,
     ) -> dict:
         if not validation_passed:
             return {
@@ -228,6 +252,24 @@ class HybridExtractionEngine:
                 "should_fallback": False,
                 "level": "none",
                 "reason": "no_baseline_fingerprint",
+                "fingerprint_score": match_score,
+                "validation_coverage": validation_coverage,
+            }
+        if is_dsl_template:
+            if match_score < 0.45:
+                return {
+                    "drift_detected": True,
+                    "should_fallback": False,
+                    "level": "medium",
+                    "reason": "fingerprint_similarity_low_but_valid_dsl",
+                    "fingerprint_score": match_score,
+                    "validation_coverage": validation_coverage,
+                }
+            return {
+                "drift_detected": False,
+                "should_fallback": False,
+                "level": "none",
+                "reason": "stable_valid_dsl",
                 "fingerprint_score": match_score,
                 "validation_coverage": validation_coverage,
             }
@@ -327,6 +369,22 @@ class HybridExtractionEngine:
 
         return ExtractionPlan(mode="declarative", fields=field_rules)
 
+    def _prepare_candidate_seed_data(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            return {}
+        if len(data) == 1:
+            wrapper_key = next(iter(data.keys()))
+            wrapper_value = data.get(wrapper_key)
+            if wrapper_key in {"content", "result", "data"} and isinstance(wrapper_value, dict):
+                scalar_children = {
+                    key: value
+                    for key, value in wrapper_value.items()
+                    if isinstance(value, (str, list, dict))
+                }
+                if scalar_children:
+                    return scalar_children
+        return data
+
     def _infer_value_type(self, value) -> str:
         if isinstance(value, str):
             return "string"
@@ -360,6 +418,10 @@ class HybridExtractionEngine:
         node = self._find_text_node(soup, scalar)
         if node is None:
             return None
+
+        label_selector = self._build_label_value_selector(node, scalar)
+        if label_selector is not None:
+            return label_selector
 
         if node.get("id"):
             return FieldSelectorRule(kind="id", value=node.get("id"))
@@ -421,3 +483,33 @@ class HybridExtractionEngine:
         if node.name and len(soup.select(node.name)) == 1:
             return node.name
         return ""
+
+    def _build_label_value_selector(
+        self, node, scalar: str
+    ) -> FieldSelectorRule | None:
+        parent = node.parent
+        if parent is None:
+            return None
+
+        siblings = [child for child in parent.find_all(recursive=False) if getattr(child, "name", None)]
+        if len(siblings) < 2:
+            return None
+
+        try:
+            index = siblings.index(node)
+        except ValueError:
+            return None
+
+        if index <= 0:
+            return None
+
+        label_node = siblings[index - 1]
+        label_text = normalize_text(label_node.get_text(" ", strip=True))
+        value_text = normalize_text(node.get_text(" ", strip=True))
+        if not label_text or value_text != scalar:
+            return None
+        if len(label_text) > 40:
+            return None
+        if label_text == scalar:
+            return None
+        return FieldSelectorRule(kind="label_value", value=label_text)

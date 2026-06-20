@@ -38,19 +38,20 @@ def build_web_ui_html() -> str:
       margin: 0 auto;
       padding: 28px 18px 40px;
     }
-    .hero, .workspace, .lower-grid { display: grid; gap: 18px; }
+    .hero, .workspace, .library-grid { display: grid; gap: 18px; }
     .hero { grid-template-columns: 1.3fr 0.9fr; margin-bottom: 18px; }
-    .workspace { grid-template-columns: minmax(340px, 430px) minmax(0, 1fr); align-items: start; }
-    .lower-grid { margin-top: 18px; grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr); }
-    .library-stack { display: grid; gap: 18px; }
+    .workspace { grid-template-columns: minmax(360px, 430px) minmax(0, 1fr); align-items: start; }
+    .workspace-side { display: grid; gap: 18px; align-content: start; min-width: 0; }
+    .library-grid { margin-top: 18px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
       backdrop-filter: blur(10px);
+      min-width: 0;
     }
-    .hero-copy, .hero-meta, .form-panel, .result-panel, .library-panel, .detail-panel { padding: 22px 28px; }
+    .hero-copy, .hero-meta, .form-panel, .result-panel, .library-panel, .detail-panel { padding: 22px 24px; }
     .hero-copy { position: relative; overflow: hidden; }
     .hero-copy::after {
       content: "";
@@ -97,7 +98,7 @@ def build_web_ui_html() -> str:
       font: inherit;
     }
     textarea { min-height: 132px; resize: vertical; }
-    .html-box { min-height: 260px; font-family: var(--mono); font-size: 12px; line-height: 1.55; }
+    .html-box { min-height: 220px; font-family: var(--mono); font-size: 12px; line-height: 1.55; }
     .actions, .toolbar, .result-toolbar, .filter-row, .pager {
       display: flex;
       gap: 10px;
@@ -121,6 +122,9 @@ def build_web_ui_html() -> str:
       justify-content: center;
       gap: 8px;
       text-decoration: none;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-align: center;
     }
     button:disabled, .button-like:has(input:disabled) { opacity: 0.65; cursor: default; }
     .primary {
@@ -174,15 +178,18 @@ def build_web_ui_html() -> str:
       margin: 0;
       border-radius: 18px;
       padding: 18px;
-      min-height: 360px;
+      min-height: 0;
+      max-height: 420px;
       overflow: auto;
       background: #0f1722;
       color: #d7f8f0;
       font-family: var(--mono);
       font-size: 12px;
       line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
-    .detail-panel pre { min-height: 620px; background: #121826; }
+    .detail-panel pre { min-height: 260px; background: #121826; }
     .empty { padding: 18px; border-style: dashed; font-size: 13px; }
     .table-wrap {
       overflow: auto;
@@ -218,11 +225,13 @@ def build_web_ui_html() -> str:
       color: var(--text);
       margin-bottom: 4px;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .row-subtitle {
       color: var(--muted);
       font-size: 12px;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .checkbox-cell {
       width: 40px;
@@ -235,14 +244,226 @@ def build_web_ui_html() -> str:
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+      align-items: stretch;
+    }
+    .row-actions > button {
+      max-width: 100%;
     }
     .table-meta {
       font-size: 12px;
       margin-bottom: 10px;
     }
+    .candidate-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin-top: 6px;
+      color: var(--muted);
+    }
+    .reason-list {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--warning);
+      line-height: 1.55;
+    }
+    .detail-summary {
+      margin: 14px 0 16px;
+      display: grid;
+      gap: 14px;
+    }
+    .summary-card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.62);
+      padding: 14px 16px;
+    }
+    .summary-title {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .summary-item {
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(15, 23, 34, 0.04);
+      border: 1px solid rgba(15, 23, 34, 0.06);
+      min-width: 0;
+    }
+    .summary-label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .summary-value {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .summary-list {
+      display: grid;
+      gap: 8px;
+    }
+    .field-rule {
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(13, 107, 99, 0.06);
+      border: 1px solid rgba(13, 107, 99, 0.12);
+    }
+    .field-rule-header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .field-rule-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent-strong);
+      word-break: break-word;
+    }
+    .token-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .token {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      border: 1px solid rgba(15, 23, 34, 0.08);
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--text);
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+    .token.warning {
+      color: var(--warning);
+      background: rgba(140, 95, 10, 0.08);
+      border-color: rgba(140, 95, 10, 0.14);
+    }
+    .progress-panel {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.58);
+    }
+    .progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .progress-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .progress-hint {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .progress-list {
+      display: grid;
+      gap: 10px;
+    }
+    .progress-item {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      min-width: 0;
+    }
+    .progress-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      margin-top: 4px;
+      background: rgba(23, 33, 43, 0.16);
+      box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.65);
+    }
+    .progress-dot.loading { background: rgba(140, 95, 10, 0.9); }
+    .progress-dot.success { background: rgba(13, 107, 99, 0.88); }
+    .progress-dot.error { background: rgba(143, 45, 45, 0.88); }
+    .progress-body {
+      min-width: 0;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed rgba(23, 33, 43, 0.12);
+    }
+    .progress-item:last-child .progress-body {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    .progress-label {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.5;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .progress-meta {
+      margin-top: 2px;
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      line-height: 1.6;
+    }
     .hidden { display: none !important; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 34, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 40;
+    }
+    .modal {
+      width: min(520px, 100%);
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: 0 32px 80px rgba(15, 23, 34, 0.22);
+      padding: 22px 22px 18px;
+    }
+    .modal h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+    .modal p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+    .modal .actions {
+      margin-top: 14px;
+      justify-content: flex-end;
+    }
     @media (max-width: 1080px) {
-      .hero, .workspace, .lower-grid { grid-template-columns: 1fr; }
+      .hero, .workspace, .library-grid { grid-template-columns: 1fr; }
       .detail-panel pre { min-height: 360px; }
     }
   </style>
@@ -285,117 +506,145 @@ def build_web_ui_html() -> str:
         <div class="hint">该界面不会主动抓取远程 URL。你需要提供实际网页源码，服务才会进行模板匹配、LLM 抽取和模板固化。</div>
       </div>
 
-      <div class="panel result-panel">
-        <div class="result-toolbar">
-          <h2 class="section-title" style="margin: 0;">解析结果</h2>
-          <div class="badge" id="statusBadge">等待执行</div>
-        </div>
-        <div class="status" id="statusLine"></div>
-        <pre id="resultBox">{
+      <div class="workspace-side">
+        <div class="panel result-panel">
+          <div class="result-toolbar">
+            <h2 class="section-title" style="margin: 0;">解析结果</h2>
+            <div class="badge" id="statusBadge">等待执行</div>
+          </div>
+          <div class="status" id="statusLine"></div>
+          <pre id="resultBox">{
   "message": "执行后会在这里显示 JSON 结果。"
 }</pre>
-      </div>
-    </section>
-
-    <section class="lower-grid">
-      <div class="library-stack">
-        <div class="panel library-panel">
-          <div class="result-toolbar">
-            <h2 class="section-title" style="margin: 0;">正式模板</h2>
-            <div class="toolbar compact">
-              <button class="ghost" id="refreshTemplatesBtn" type="button">刷新模板</button>
-              <button class="danger" id="deleteSelectedTemplatesBtn" type="button">删除选中</button>
+          <div class="progress-panel">
+            <div class="progress-header">
+              <h3 class="progress-title">解析进度</h3>
+              <div class="progress-hint" id="progressHint">等待开始</div>
+            </div>
+            <div class="progress-list" id="progressList">
+              <div class="empty">导入 HTML、发起解析后，这里会按时间顺序展示当前执行路径。</div>
             </div>
           </div>
-          <div class="mini-note">模板列表支持搜索、筛选和分页，避免模板数量变大后整页铺开。</div>
-          <div class="filter-row">
-            <input id="templateSearch" type="text" placeholder="搜索 template_id / site_id / template_key" />
-            <select id="templateStatusFilter" class="compact">
-              <option value="">全部状态</option>
-              <option value="active">active</option>
-              <option value="draft">draft</option>
-              <option value="deprecated">deprecated</option>
-              <option value="archived">archived</option>
-            </select>
-            <select id="templatePageSize" class="compact">
-              <option value="5">5 / 页</option>
-              <option value="10" selected>10 / 页</option>
-              <option value="20">20 / 页</option>
-            </select>
-          </div>
-          <div class="table-meta" id="templateMeta"></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="checkbox-cell"><input id="selectAllTemplates" type="checkbox" /></th>
-                  <th>模板</th>
-                  <th>站点 / 场景</th>
-                  <th>状态</th>
-                  <th>版本</th>
-                  <th>字段</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="templatesTableBody"></tbody>
-            </table>
-          </div>
-          <div class="pager" style="margin-top: 12px;">
-            <button class="ghost" id="templatePrevBtn" type="button">上一页</button>
-            <div class="mini-note" id="templatePagerText"></div>
-            <button class="ghost" id="templateNextBtn" type="button">下一页</button>
-          </div>
         </div>
 
-        <div class="panel library-panel">
+        <div class="panel detail-panel">
           <div class="result-toolbar">
-            <h2 class="section-title" style="margin: 0;">候选模板</h2>
-            <div class="toolbar compact">
-              <button class="ghost" id="refreshCandidatesBtn" type="button">刷新候选</button>
-            </div>
+            <h2 class="section-title" style="margin: 0;">详情</h2>
+            <div class="badge" id="detailBadge">未选择</div>
           </div>
-          <div class="mini-note">候选模板保留首次 LLM 成功抽取后的分析结果与 DSL 草案。</div>
-          <div class="filter-row">
-            <input id="candidateSearch" type="text" placeholder="搜索 candidate_id / site_id / source_url" />
-            <select id="candidatePageSize" class="compact">
-              <option value="5">5 / 页</option>
-              <option value="10" selected>10 / 页</option>
-              <option value="20">20 / 页</option>
-            </select>
+          <div class="status" id="detailStatus">点击表格中的详情按钮查看模板或候选模板内容。</div>
+          <div class="detail-summary" id="detailSummary">
+            <div class="empty">这里会优先展示模板的规则定位、指纹、后处理和可晋升性摘要。</div>
           </div>
-          <div class="table-meta" id="candidateMeta"></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>候选模板</th>
-                  <th>站点 / 场景</th>
-                  <th>字段</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="candidatesTableBody"></tbody>
-            </table>
-          </div>
-          <div class="pager" style="margin-top: 12px;">
-            <button class="ghost" id="candidatePrevBtn" type="button">上一页</button>
-            <div class="mini-note" id="candidatePagerText"></div>
-            <button class="ghost" id="candidateNextBtn" type="button">下一页</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel detail-panel">
-        <div class="result-toolbar">
-          <h2 class="section-title" style="margin: 0;">详情</h2>
-          <div class="badge" id="detailBadge">未选择</div>
-        </div>
-        <div class="status" id="detailStatus">点击表格中的详情按钮查看模板或候选模板内容。</div>
-        <pre id="detailBox">{
+          <pre id="detailBox">{
   "message": "详情会显示在这里。"
 }</pre>
+        </div>
       </div>
     </section>
+
+    <section class="library-grid">
+      <div class="panel library-panel">
+        <div class="result-toolbar">
+          <h2 class="section-title" style="margin: 0;">正式模板</h2>
+          <div class="toolbar compact">
+            <button class="ghost" id="refreshTemplatesBtn" type="button">刷新模板</button>
+            <button class="danger" id="deleteSelectedTemplatesBtn" type="button">删除选中</button>
+          </div>
+        </div>
+        <div class="mini-note">这里展示已经可以直接复用的正式模板，适合做批量网页解析。</div>
+        <div class="filter-row">
+          <input id="templateSearch" type="text" placeholder="搜索 template_id / site_id / template_key" />
+          <select id="templateStatusFilter" class="compact">
+            <option value="">全部状态</option>
+            <option value="active">active</option>
+            <option value="draft">draft</option>
+            <option value="deprecated">deprecated</option>
+            <option value="archived">archived</option>
+          </select>
+          <select id="templatePageSize" class="compact">
+            <option value="5">5 / 页</option>
+            <option value="10" selected>10 / 页</option>
+            <option value="20">20 / 页</option>
+          </select>
+        </div>
+        <div class="table-meta" id="templateMeta"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="checkbox-cell"><input id="selectAllTemplates" type="checkbox" /></th>
+                <th>模板</th>
+                <th>站点 / 场景</th>
+                <th>状态</th>
+                <th>版本</th>
+                <th>字段</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="templatesTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" style="margin-top: 12px;">
+          <button class="ghost" id="templatePrevBtn" type="button">上一页</button>
+          <div class="mini-note" id="templatePagerText"></div>
+          <button class="ghost" id="templateNextBtn" type="button">下一页</button>
+        </div>
+      </div>
+
+      <div class="panel library-panel">
+        <div class="result-toolbar">
+          <h2 class="section-title" style="margin: 0;">候选模板</h2>
+          <div class="toolbar compact">
+            <button class="ghost" id="refreshCandidatesBtn" type="button">刷新候选</button>
+          </div>
+        </div>
+        <div class="mini-note">候选模板保留首次 LLM 成功抽取后的分析结果与 DSL 草案。只有生成了可执行规则的候选模板，才能晋升为正式模板。</div>
+        <div class="filter-row">
+          <input id="candidateSearch" type="text" placeholder="搜索 candidate_id / site_id / source_url" />
+          <select id="candidatePageSize" class="compact">
+            <option value="5">5 / 页</option>
+            <option value="10" selected>10 / 页</option>
+            <option value="20">20 / 页</option>
+          </select>
+        </div>
+        <div class="table-meta" id="candidateMeta"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>候选模板</th>
+                <th>站点 / 场景</th>
+                <th>可晋升性</th>
+                <th>字段</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="candidatesTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" style="margin-top: 12px;">
+          <button class="ghost" id="candidatePrevBtn" type="button">上一页</button>
+          <div class="mini-note" id="candidatePagerText"></div>
+          <button class="ghost" id="candidateNextBtn" type="button">下一页</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop">
+    <div class="modal">
+      <h3 id="modalTitle">操作确认</h3>
+      <p id="modalMessage"></p>
+      <div class="field hidden" id="modalInputWrap">
+        <label for="modalInput">输入内容</label>
+        <input id="modalInput" type="text" />
+      </div>
+      <div class="actions">
+        <button class="ghost" id="modalCancelBtn" type="button">取消</button>
+        <button class="primary" id="modalConfirmBtn" type="button">确认</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -404,7 +653,9 @@ def build_web_ui_html() -> str:
       candidates: [],
       selectedTemplateIds: new Set(),
       templatePage: 1,
-      candidatePage: 1
+      candidatePage: 1,
+      progressEvents: [],
+      importedFileName: ""
     };
 
     const urlInput = document.getElementById("url");
@@ -417,7 +668,10 @@ def build_web_ui_html() -> str:
     const resultBox = document.getElementById("resultBox");
     const statusLine = document.getElementById("statusLine");
     const statusBadge = document.getElementById("statusBadge");
+    const progressList = document.getElementById("progressList");
+    const progressHint = document.getElementById("progressHint");
     const detailBox = document.getElementById("detailBox");
+    const detailSummary = document.getElementById("detailSummary");
     const detailStatus = document.getElementById("detailStatus");
     const detailBadge = document.getElementById("detailBadge");
     const refreshTemplatesBtn = document.getElementById("refreshTemplatesBtn");
@@ -439,6 +693,14 @@ def build_web_ui_html() -> str:
     const candidatePagerText = document.getElementById("candidatePagerText");
     const candidatePrevBtn = document.getElementById("candidatePrevBtn");
     const candidateNextBtn = document.getElementById("candidateNextBtn");
+    const modalBackdrop = document.getElementById("modalBackdrop");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalMessage = document.getElementById("modalMessage");
+    const modalInputWrap = document.getElementById("modalInputWrap");
+    const modalInput = document.getElementById("modalInput");
+    const modalCancelBtn = document.getElementById("modalCancelBtn");
+    const modalConfirmBtn = document.getElementById("modalConfirmBtn");
+    let activeDialogResolver = null;
 
     function setStatus(text, tone) {
       statusLine.textContent = text;
@@ -465,10 +727,90 @@ def build_web_ui_html() -> str:
       statusBadge.style.color = "#094840";
     }
 
-    function setDetail(label, payload, message) {
+    function formatProgressTime(date = new Date()) {
+      return date.toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function renderProgress() {
+      if (!state.progressEvents.length) {
+        progressHint.textContent = "等待开始";
+        progressList.innerHTML = '<div class="empty">导入 HTML、发起解析后，这里会按时间顺序展示当前执行路径。</div>';
+        return;
+      }
+      const last = state.progressEvents[state.progressEvents.length - 1];
+      progressHint.textContent = `${state.progressEvents.length} 个节点`;
+      progressList.innerHTML = state.progressEvents.map((item) => `
+        <div class="progress-item">
+          <div class="progress-dot ${escapeHtml(item.tone || "")}"></div>
+          <div class="progress-body">
+            <div class="progress-label">${escapeHtml(item.label || "-")}</div>
+            <div class="progress-meta">${escapeHtml(item.detail || "-")} · ${escapeHtml(item.time || "")}</div>
+          </div>
+        </div>
+      `).join("");
+      if (last?.detail) {
+        progressHint.textContent = last.detail;
+      }
+    }
+
+    function resetProgress() {
+      state.progressEvents = [];
+      renderProgress();
+    }
+
+    function pushProgress(label, detail, tone = "") {
+      state.progressEvents.push({
+        label,
+        detail,
+        tone,
+        time: formatProgressTime()
+      });
+      state.progressEvents = state.progressEvents.slice(-8);
+      renderProgress();
+    }
+
+    function setDetail(label, payload, message, summaryHtml) {
       detailBadge.textContent = label;
       detailStatus.textContent = message || "";
+      detailSummary.innerHTML = summaryHtml || '<div class="empty">当前没有可展示的规则定位摘要。</div>';
       detailBox.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function closeDialog(result) {
+      modalBackdrop.classList.add("hidden");
+      if (activeDialogResolver) {
+        activeDialogResolver(result);
+        activeDialogResolver = null;
+      }
+    }
+
+    function openDialog({ title, message, confirmText = "确认", cancelText = "取消", input = false, defaultValue = "" }) {
+      modalTitle.textContent = title || "操作确认";
+      modalMessage.textContent = message || "";
+      modalConfirmBtn.textContent = confirmText;
+      modalCancelBtn.textContent = cancelText;
+      modalInputWrap.classList.toggle("hidden", !input);
+      modalInput.value = defaultValue || "";
+      modalBackdrop.classList.remove("hidden");
+      if (input) setTimeout(() => modalInput.focus(), 10);
+      return new Promise((resolve) => {
+        activeDialogResolver = resolve;
+      });
+    }
+
+    async function askConfirm(title, message, confirmText) {
+      const result = await openDialog({ title, message, confirmText: confirmText || "确认" });
+      return result?.confirmed === true;
+    }
+
+    async function askInput(title, message, defaultValue) {
+      const result = await openDialog({ title, message, input: true, defaultValue: defaultValue || "", confirmText: "继续" });
+      if (!result?.confirmed) return null;
+      return result.value ?? "";
     }
 
     async function requestJson(url, options) {
@@ -491,6 +833,207 @@ def build_web_ui_html() -> str:
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
+    }
+
+    function renderTokenList(values, tone) {
+      if (!Array.isArray(values) || !values.length) {
+        return '<span class="token">-</span>';
+      }
+      return values
+        .map((value) => `<span class="token ${tone || ""}">${escapeHtml(value)}</span>`)
+        .join("");
+    }
+
+    function renderSummaryItem(label, value) {
+      return `
+        <div class="summary-item">
+          <span class="summary-label">${escapeHtml(label)}</span>
+          <div class="summary-value">${value || "-"}</div>
+        </div>
+      `;
+    }
+
+    function formatSelector(selector) {
+      if (!selector || typeof selector !== "object") return "-";
+      const attr = selector.attr && selector.attr !== "text" ? ` @${selector.attr}` : "";
+      const many = selector.many ? " [many]" : "";
+      return `${selector.kind || "unknown"}: ${selector.value || "-"}${attr}${many}`;
+    }
+
+    function formatPostprocess(step) {
+      if (!step || typeof step !== "object") return "-";
+      const args = step.args && Object.keys(step.args).length
+        ? ` ${escapeHtml(JSON.stringify(step.args))}`
+        : "";
+      return `${escapeHtml(step.op || "unknown")}${args}`;
+    }
+
+    function findFieldAnalysis(analysis, fieldName) {
+      const items = analysis && Array.isArray(analysis.field_analyses) ? analysis.field_analyses : [];
+      return items.find((item) => item.field_name === fieldName) || null;
+    }
+
+    function renderPlanCard(plan, analysis, title) {
+      const fields = plan && Array.isArray(plan.fields) ? plan.fields : [];
+      if (!fields.length) {
+        return `
+          <div class="summary-card">
+            <div class="summary-title">${escapeHtml(title)}</div>
+            <div class="empty">当前没有生成可执行的字段级 DSL 规则。</div>
+          </div>
+        `;
+      }
+      const items = fields.map((field) => {
+        const fieldAnalysis = findFieldAnalysis(analysis, field.field_name);
+        const selectors = Array.isArray(field.selectors) ? field.selectors : [];
+        const steps = Array.isArray(field.postprocess) ? field.postprocess : [];
+        const fallback = field.fallback_value == null ? "-" : escapeHtml(JSON.stringify(field.fallback_value));
+        return `
+          <div class="field-rule">
+            <div class="field-rule-header">
+              <div class="field-rule-name">${escapeHtml(field.field_name || "-")}</div>
+              <span class="pill ${fieldAnalysis?.deterministic_feasibility === "low" ? "warning" : "success"}">
+                ${escapeHtml(fieldAnalysis?.deterministic_feasibility || "rule")}
+              </span>
+            </div>
+            <div class="summary-grid">
+              ${renderSummaryItem("定位选择器", `<div class="token-row">${renderTokenList(selectors.map(formatSelector))}</div>`)}
+              ${renderSummaryItem("后处理", `<div class="token-row">${renderTokenList(steps.map(formatPostprocess))}</div>`)}
+              ${renderSummaryItem("锚点提示", `<div class="token-row">${renderTokenList(fieldAnalysis?.likely_anchors || [])}</div>`)}
+              ${renderSummaryItem("回退值", fallback)}
+            </div>
+          </div>
+        `;
+      }).join("");
+      return `
+        <div class="summary-card">
+          <div class="summary-title">${escapeHtml(title)}</div>
+          <div class="summary-list">${items}</div>
+        </div>
+      `;
+    }
+
+    function renderAnalysisCard(analysis) {
+      if (!analysis) {
+        return "";
+      }
+      return `
+        <div class="summary-card">
+          <div class="summary-title">模板分析</div>
+          <div class="summary-grid">
+            ${renderSummaryItem("分析摘要", escapeHtml(analysis.summary || "-"))}
+            ${renderSummaryItem("页面线索", `<div class="token-row">${renderTokenList(analysis.page_cues || [])}</div>`)}
+            ${renderSummaryItem("需回退字段", `<div class="token-row">${renderTokenList(analysis.fallback_fields || [], "warning")}</div>`)}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFingerprintCard(fingerprint) {
+      if (!fingerprint) {
+        return "";
+      }
+      return `
+        <div class="summary-card">
+          <div class="summary-title">页面指纹</div>
+          <div class="summary-grid">
+            ${renderSummaryItem("DOM 签名", escapeHtml(fingerprint.dom_signature || "-"))}
+            ${renderSummaryItem("标题锚点", `<div class="token-row">${renderTokenList(fingerprint.headings || [])}</div>`)}
+            ${renderSummaryItem("关键 ID", `<div class="token-row">${renderTokenList(fingerprint.key_ids || [])}</div>`)}
+            ${renderSummaryItem("关键 Class", `<div class="token-row">${renderTokenList(fingerprint.key_classes || [])}</div>`)}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPromotionCard(check) {
+      if (!check) {
+        return "";
+      }
+      const reasons = Array.isArray(check.reasons) ? check.reasons : [];
+      return `
+        <div class="summary-card">
+          <div class="summary-title">晋升检查</div>
+          <div class="summary-grid">
+            ${renderSummaryItem("可晋升", check.promotable ? '<span class="pill success">可晋升</span>' : '<span class="pill warning">不可晋升</span>')}
+            ${renderSummaryItem("字段规则", check.has_plan ? '<span class="pill success">已生成</span>' : '<span class="pill warning">缺失</span>')}
+            ${renderSummaryItem("已抽字段", String(check.extracted_field_count ?? 0))}
+            ${renderSummaryItem("冲突模板", escapeHtml(check.existing_template_id || "-"))}
+            ${renderSummaryItem("不可晋升原因", `<div class="token-row">${renderTokenList(reasons, "warning")}</div>`)}
+          </div>
+        </div>
+      `;
+    }
+
+    function buildDetailSummary(payload) {
+      if (!payload || typeof payload !== "object") {
+        return '<div class="empty">当前没有可展示的规则定位摘要。</div>';
+      }
+      const blocks = [];
+      if (payload.fingerprint) {
+        blocks.push(renderFingerprintCard(payload.fingerprint));
+      }
+      if (payload.analysis) {
+        blocks.push(renderAnalysisCard(payload.analysis));
+      }
+      if (payload.extraction_plan) {
+        blocks.push(renderPlanCard(payload.extraction_plan, payload.analysis, "正式模板规则定位"));
+      }
+      if (payload.proposed_plan) {
+        blocks.push(renderPlanCard(payload.proposed_plan, payload.analysis, "候选模板规则定位"));
+      }
+      if (payload.promotion_check) {
+        blocks.push(renderPromotionCard(payload.promotion_check));
+      }
+      if (!blocks.length) {
+        return '<div class="empty">当前详情对象不包含模板规则、候选规则或页面指纹。</div>';
+      }
+      return blocks.join("");
+    }
+
+    function pushResponseProgress(data) {
+      if (!data || typeof data !== "object") {
+        return;
+      }
+      const debugTrace = data.debug_trace || {};
+      if (data.extractor_type === "deterministic") {
+        pushProgress(
+          "命中正式模板",
+          data.template_id ? `直接使用模板 ${data.template_id}` : "直接使用本地正式模板规则",
+          "success"
+        );
+      } else if (data.extractor_type === "hybrid") {
+        pushProgress(
+          "模板校验后回退到 LLM",
+          data.template_id ? `模板 ${data.template_id} 未完全通过校验，已自动切换到 LLM` : "模板未通过校验，已自动切换到 LLM",
+          "loading"
+        );
+      } else if (data.extractor_type === "llm") {
+        pushProgress(
+          "已调用 LLM",
+          "当前页面未命中可直接复用的正式模板，已走 LLM 抽取流程",
+          "loading"
+        );
+      }
+
+      if (data.drift_detected) {
+        pushProgress("检测到模板漂移", "页面结构与历史模板存在偏移，系统已启动回退处理", "error");
+      }
+      if (debugTrace.template_candidate_path) {
+        pushProgress("已生成候选模板", "当前抽取样本已沉淀为候选模板，便于后续晋升固化", "success");
+      }
+      if (debugTrace.solidified_template_id) {
+        pushProgress("已自动固化模板", `生成正式模板 ${debugTrace.solidified_template_id}`, "success");
+      }
+      if (data.status === "failed") {
+        pushProgress("解析失败", "服务已返回失败状态，请查看结果 JSON 和详情区域", "error");
+        return;
+      }
+      pushProgress(
+        "解析完成",
+        data.page_type ? `页面类型：${data.page_type}` : "已返回结构化结果",
+        "success"
+      );
     }
 
     function paginate(items, page, pageSize) {
@@ -606,12 +1149,19 @@ def build_web_ui_html() -> str:
       candidateNextBtn.disabled = view.page >= view.totalPages;
 
       if (!filtered.length) {
-        candidatesTableBody.innerHTML = '<tr><td colspan="4"><div class="empty">没有符合条件的候选模板。</div></td></tr>';
+        candidatesTableBody.innerHTML = '<tr><td colspan="5"><div class="empty">没有符合条件的候选模板。</div></td></tr>';
         return;
       }
 
       candidatesTableBody.innerHTML = view.items.map((item) => {
         const extractedFields = Array.isArray(item.extracted_fields) ? item.extracted_fields.join(", ") : "";
+        const check = item.promotion_check || {};
+        const promotable = Boolean(check.promotable);
+        const reasons = Array.isArray(check.reasons) ? check.reasons : [];
+        const reasonText = reasons.slice(0, 2).map((reason) => `<div>${escapeHtml(reason)}</div>`).join("");
+        const statusPill = promotable
+          ? '<span class="pill success">可晋升</span>'
+          : '<span class="pill warning">不可晋升</span>';
         return `
           <tr>
             <td>
@@ -622,11 +1172,15 @@ def build_web_ui_html() -> str:
               <div>${escapeHtml(item.site_id)}</div>
               <div class="row-subtitle">${escapeHtml(item.scenario)}</div>
             </td>
+            <td>
+              ${statusPill}
+              ${reasonText ? `<div class="reason-list">${reasonText}</div>` : '<div class="candidate-status">已具备正式模板固化条件</div>'}
+            </td>
             <td>${escapeHtml(extractedFields || "-")}</td>
             <td>
               <div class="row-actions">
                 <button class="ghost" type="button" data-candidate-detail="${escapeHtml(item.candidate_id)}">详情</button>
-                <button class="secondary" type="button" data-candidate-promote="${escapeHtml(item.candidate_id)}">晋升</button>
+                <button class="secondary" type="button" data-candidate-promote="${escapeHtml(item.candidate_id)}" ${promotable ? "" : "disabled"}>晋升</button>
                 <button class="warning-button" type="button" data-candidate-delete="${escapeHtml(item.candidate_id)}">删除</button>
               </div>
             </td>
@@ -666,14 +1220,14 @@ def build_web_ui_html() -> str:
         state.candidates = payload.candidates || [];
         renderCandidates();
       } catch (error) {
-        candidatesTableBody.innerHTML = `<tr><td colspan="4"><div class="empty">候选模板加载失败: ${escapeHtml(String(error))}</div></td></tr>`;
+        candidatesTableBody.innerHTML = `<tr><td colspan="5"><div class="empty">候选模板加载失败: ${escapeHtml(String(error))}</div></td></tr>`;
       }
     }
 
     async function showTemplateDetail(templateId) {
       try {
         const payload = await requestJson(`/templates/${encodeURIComponent(templateId)}`);
-        setDetail(`模板 ${templateId}`, payload, "这是正式模板的完整 manifest。");
+        setDetail(`模板 ${templateId}`, payload, "这是正式模板的完整 manifest。", buildDetailSummary(payload));
       } catch (error) {
         setDetail("模板详情失败", { error: String(error) }, "无法读取模板详情。");
       }
@@ -682,14 +1236,14 @@ def build_web_ui_html() -> str:
     async function showCandidateDetail(candidateId) {
       try {
         const payload = await requestJson(`/template-candidates/${encodeURIComponent(candidateId)}`);
-        setDetail(`候选 ${candidateId}`, payload, "这是候选模板的分析结果与 DSL 草案。");
+        setDetail(`候选 ${candidateId}`, payload, "这是候选模板的分析结果与 DSL 草案。", buildDetailSummary(payload));
       } catch (error) {
         setDetail("候选详情失败", { error: String(error) }, "无法读取候选模板详情。");
       }
     }
 
     async function deleteTemplate(templateId) {
-      if (!window.confirm(`确认删除模板 ${templateId} 吗？`)) return;
+      if (!await askConfirm("删除模板", `确认删除模板 ${templateId} 吗？`, "删除")) return;
       try {
         const payload = await requestNoContent(`/templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
         state.selectedTemplateIds.delete(templateId);
@@ -706,7 +1260,7 @@ def build_web_ui_html() -> str:
         setDetail("批量删除", { message: "未选择模板" }, "请先勾选需要删除的模板。");
         return;
       }
-      if (!window.confirm(`确认删除选中的 ${templateIds.length} 个模板吗？`)) return;
+      if (!await askConfirm("批量删除模板", `确认删除选中的 ${templateIds.length} 个模板吗？`, "删除")) return;
       try {
         const payload = await requestJson("/templates/delete-batch", {
           method: "POST",
@@ -722,7 +1276,7 @@ def build_web_ui_html() -> str:
     }
 
     async function deleteCandidate(candidateId) {
-      if (!window.confirm(`确认删除候选模板 ${candidateId} 吗？`)) return;
+      if (!await askConfirm("删除候选模板", `确认删除候选模板 ${candidateId} 吗？`, "删除")) return;
       try {
         const payload = await requestNoContent(`/template-candidates/${encodeURIComponent(candidateId)}`, { method: "DELETE" });
         setDetail(`删除候选 ${candidateId}`, payload, "候选模板已删除。");
@@ -733,7 +1287,11 @@ def build_web_ui_html() -> str:
     }
 
     async function promoteCandidate(candidateId) {
-      const templateKeyInput = window.prompt("请输入模板谱系标识 template_key（留空则按站点/场景自动生成）", "");
+      const templateKeyInput = await askInput(
+        "晋升候选模板",
+        "请输入模板谱系标识 template_key。留空则按站点、场景、页面类型和结构指纹自动生成。",
+        ""
+      );
       if (templateKeyInput === null) return;
       try {
         const payload = await requestJson(`/template-candidates/${encodeURIComponent(candidateId)}/promote`, {
@@ -747,7 +1305,7 @@ def build_web_ui_html() -> str:
         setDetail(`晋升 ${candidateId}`, payload, "候选模板已晋升为正式模板。");
         await Promise.all([loadTemplates(), loadCandidates()]);
       } catch (error) {
-        setDetail("候选晋升失败", { error: String(error) }, "无法晋升候选模板。");
+        setDetail("候选晋升失败", { error: String(error) }, "候选模板当前不满足晋升条件，请先查看右侧详情或表格中的不可晋升原因。");
       }
     }
 
@@ -755,20 +1313,29 @@ def build_web_ui_html() -> str:
       urlInput.value = "https://example.com/article/123";
       promptInput.value = "提取页面中的标题、摘要、作者、发布时间和正文要点。";
       htmlInput.value = "<html><head><title>示例页面</title><meta name=\\"description\\" content=\\"这是一个示例摘要\\"></head><body><main><h1>示例标题</h1><article><p>这里是正文。</p></article></main></body></html>";
+      state.importedFileName = "";
+      resetProgress();
+      pushProgress("已填充示例数据", "已写入示例 URL、需求和 HTML，可直接开始解析", "success");
     });
 
     clearBtn.addEventListener("click", () => {
       urlInput.value = "";
       htmlInput.value = "";
+      promptInput.value = "提取页面中与用户需求最相关的结构化信息，并尽量输出中文字段和值。";
+      state.importedFileName = "";
       resultBox.textContent = JSON.stringify({ message: "执行后会在这里显示 JSON 结果。" }, null, 2);
       setStatus("", "idle");
+      resetProgress();
     });
 
     fileInput.addEventListener("change", async (event) => {
       const [file] = event.target.files;
       if (!file) return;
       htmlInput.value = await file.text();
+      state.importedFileName = file.name;
       setStatus(`已导入文件: ${file.name}`, "success");
+      resetProgress();
+      pushProgress("已导入 HTML 文件", `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`, "success");
     });
 
     extractBtn.addEventListener("click", async () => {
@@ -779,8 +1346,19 @@ def build_web_ui_html() -> str:
       };
       if (!payload.raw_html.trim()) {
         setStatus("请先提供网页源码。", "error");
+        pushProgress("缺少网页源码", "请先粘贴 HTML 或导入本地 HTML 文件", "error");
         return;
       }
+      resetProgress();
+      if (state.importedFileName) {
+        pushProgress("输入源已就绪", `导入文件：${state.importedFileName}`, "success");
+      } else {
+        pushProgress("输入源已就绪", `已提供 ${payload.raw_html.length} 个字符的网页源码`, "success");
+      }
+      if (payload.url) {
+        pushProgress("页面来源", payload.url, "");
+      }
+      pushProgress("开始解析", "正在请求 /extract 接口", "loading");
       setStatus("正在调用 /extract ...", "loading");
       extractBtn.disabled = true;
       try {
@@ -791,15 +1369,19 @@ def build_web_ui_html() -> str:
         });
         const data = await response.json();
         resultBox.textContent = JSON.stringify(data, null, 2);
+        pushProgress("服务已返回响应", `HTTP ${response.status}`, response.ok ? "success" : "error");
         if (!response.ok) {
           setStatus(`请求失败: HTTP ${response.status}`, "error");
+          pushProgress("请求失败", String(data.error || `HTTP ${response.status}`), "error");
           return;
         }
+        pushResponseProgress(data);
         setStatus("解析完成。", data.status === "failed" ? "error" : "success");
         await Promise.all([loadTemplates(), loadCandidates()]);
       } catch (error) {
         resultBox.textContent = JSON.stringify({ error: String(error) }, null, 2);
         setStatus("请求异常，请检查服务日志。", "error");
+        pushProgress("请求异常", String(error), "error");
       } finally {
         extractBtn.disabled = false;
       }
@@ -860,6 +1442,15 @@ def build_web_ui_html() -> str:
     deleteSelectedTemplatesBtn.addEventListener("click", deleteSelectedTemplates);
     refreshTemplatesBtn.addEventListener("click", loadTemplates);
     refreshCandidatesBtn.addEventListener("click", loadCandidates);
+    modalCancelBtn.addEventListener("click", () => closeDialog({ confirmed: false }));
+    modalConfirmBtn.addEventListener("click", () => {
+      closeDialog({ confirmed: true, value: modalInput.value });
+    });
+    modalBackdrop.addEventListener("click", (event) => {
+      if (event.target === modalBackdrop) {
+        closeDialog({ confirmed: false });
+      }
+    });
 
     loadTemplates();
     loadCandidates();

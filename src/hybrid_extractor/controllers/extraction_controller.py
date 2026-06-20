@@ -51,14 +51,20 @@ class ExtractionController:
         }
 
     def list_template_candidates(self) -> Dict[str, Any]:
-        candidates = [candidate.model_dump() for candidate in self.template_service.load_candidates()]
+        candidates = []
+        for candidate in self.template_service.load_candidates():
+            payload = candidate.model_dump()
+            payload["promotion_check"] = self.template_service.inspect_candidate_promotability(candidate)
+            candidates.append(payload)
         return {"candidates": candidates}
 
     def get_template_candidate(self, candidate_id: str) -> Dict[str, Any]:
         candidate = self.template_service.get_candidate(candidate_id)
         if candidate is None:
             raise ValueError(f"Template candidate not found: {candidate_id}")
-        return candidate.model_dump()
+        payload = candidate.model_dump()
+        payload["promotion_check"] = self.template_service.inspect_candidate_promotability(candidate)
+        return payload
 
     def delete_template_candidate(self, candidate_id: str) -> Dict[str, Any]:
         deleted = self.template_service.delete_candidate(candidate_id)
@@ -82,7 +88,12 @@ class ExtractionController:
             deactivate_previous_versions=deactivate_previous_versions,
         )
         if manifest is None:
-            raise ValueError(f"Template candidate not promotable: {candidate_id}")
+            candidate = self.template_service.get_candidate(candidate_id)
+            if candidate is None:
+                raise ValueError(f"Template candidate not found: {candidate_id}")
+            check = self.template_service.inspect_candidate_promotability(candidate, required_fields)
+            reason_text = "；".join(check["reasons"]) if check["reasons"] else "缺少可执行抽取规则。"
+            raise ValueError(f"Template candidate not promotable: {candidate_id}. {reason_text}")
         return manifest.model_dump()
 
     def set_template_status(self, template_id: str, lifecycle_status: str) -> Dict[str, Any]:

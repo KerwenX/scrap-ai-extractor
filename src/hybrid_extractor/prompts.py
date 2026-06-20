@@ -7,7 +7,8 @@ PROMPT_VERSION = "v1"
 SYSTEM_EXTRACTION_PROMPT = (
     "You are a web extraction engine. Read the supplied HTML and return one JSON object only. "
     "Honor the user's business request, infer suitable fields from page semantics, keep field names "
-    "stable and concise, and never invent unsupported facts."
+    "stable and concise, prefer Chinese field names when the page and user request are mainly Chinese, "
+    "and never invent unsupported facts."
 )
 
 SYSTEM_TEMPLATE_PLAN_PROMPT = (
@@ -35,7 +36,9 @@ def build_extraction_prompt(intent: ExtractionIntent) -> str:
         "4. Normalize obvious boilerplate, but preserve domain meaning.\n"
         "5. If a section exists but content is sparse, keep the field concise rather than guessing.\n"
         "6. When the page has distinguishable metadata or sections, prefer multiple meaningful fields "
-        "instead of a single catch-all field such as content or result.\n\n"
+        "instead of a single catch-all field such as content or result.\n"
+        "7. If the page language is mainly Chinese, field names should also prefer concise Chinese labels "
+        "such as 标题、作者、摘要、医生、发布时间.\n\n"
         "[field-hints]\n"
         f"Preferred fields: {hint_text}.\n\n"
         "[user-requirement]\n"

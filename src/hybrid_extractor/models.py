@@ -41,12 +41,19 @@ class PostProcessStep(BaseModel):
         "split_cn_list",
         "unique",
         "first_non_empty_line",
+        "regex_extract",
+        "regex_replace",
+        "join",
+        "filter_empty",
+        "normalize_whitespace",
+        "to_int",
+        "to_float",
     ]
     args: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FieldSelectorRule(BaseModel):
-    kind: Literal["css", "id", "meta", "text_pattern", "section_tab", "code"]
+    kind: Literal["css", "id", "meta", "text_pattern", "section_tab", "label_value", "code"]
     value: str
     attr: str = "text"
     many: bool = False
@@ -112,6 +119,11 @@ class TemplateMatch(BaseModel):
     page_type: str
     scenario: str
     version: str = "v1"
+    fingerprint_score: float = 0.0
+    selector_hit_rate: float = 0.0
+    required_hit_rate: float = 0.0
+    classification_affinity: float = 0.0
+    score_breakdown: Dict[str, float] = Field(default_factory=dict)
 
 
 class TemplateManifest(BaseModel):

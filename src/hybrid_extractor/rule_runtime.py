@@ -74,6 +74,9 @@ class RuleRuntime:
             tab_map = self._build_section_tab_map(soup)
             return tab_map.get(selector.value)
 
+        if selector.kind == "label_value":
+            return self._extract_label_value(soup, selector.value, selector.many)
+
         if selector.kind == "code":
             handler = self.code_handlers.get(selector.value)
             if not handler:
@@ -107,13 +110,74 @@ class RuleRuntime:
             return values
         return values[0] if values else None
 
+    def _extract_label_value(self, soup: BeautifulSoup, label: str, many: bool) -> Any:
+        normalized_label = normalize_text(label)
+        if not normalized_label:
+            return None
+
+        values: list[str] = []
+        for node in soup.find_all(["td", "th", "dt", "dd", "span", "div", "label", "strong", "b"]):
+            node_text = normalize_text(node.get_text(" ", strip=True))
+            if node_text != normalized_label:
+                continue
+
+            extracted = self._extract_value_near_label(node)
+            if not extracted:
+                continue
+            values.append(extracted)
+
+        unique_values = []
+        seen = set()
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            unique_values.append(value)
+
+        if many:
+            return unique_values
+        return unique_values[0] if unique_values else None
+
+    def _extract_value_near_label(self, node) -> str | None:
+        next_sibling = self._next_element_sibling(node)
+        if next_sibling:
+            value = normalize_text(next_sibling.get_text(" ", strip=True))
+            if value:
+                return value
+
+        parent = node.parent
+        if parent:
+            parent_children = [child for child in parent.find_all(recursive=False) if getattr(child, "name", None)]
+            if len(parent_children) >= 2:
+                try:
+                    index = parent_children.index(node)
+                except ValueError:
+                    index = -1
+                if 0 <= index < len(parent_children) - 1:
+                    value = normalize_text(parent_children[index + 1].get_text(" ", strip=True))
+                    if value:
+                        return value
+                if index == len(parent_children) - 1 and index > 0:
+                    value = normalize_text(parent_children[index].get_text(" ", strip=True))
+                    label = normalize_text(parent_children[index - 1].get_text(" ", strip=True))
+                    if value and label:
+                        return value
+
+        return None
+
+    def _next_element_sibling(self, node):
+        sibling = node.next_sibling
+        while sibling is not None and not getattr(sibling, "name", None):
+            sibling = sibling.next_sibling
+        return sibling
+
     def _apply_postprocess(self, value: Any, field_rule: FieldRule) -> Any:
         current = value
         for step in field_rule.postprocess:
-            current = self._apply_step(current, step.op)
+            current = self._apply_step(current, step.op, step.args)
         return current
 
-    def _apply_step(self, value: Any, op: str) -> Any:
+    def _apply_step(self, value: Any, op: str, args: dict[str, Any]) -> Any:
         if value is None:
             return None
 
@@ -158,6 +222,59 @@ class RuleRuntime:
                     if line:
                         return line
                 return ""
+
+        if op == "regex_extract":
+            pattern = str(args.get("pattern", "")).strip()
+            group = int(args.get("group", 1))
+            if pattern and isinstance(value, str):
+                match = re.search(pattern, value)
+                if not match:
+                    return None
+                if match.groups():
+                    try:
+                        return match.group(group)
+                    except IndexError:
+                        return match.group(0)
+                return match.group(0)
+
+        if op == "regex_replace":
+            pattern = str(args.get("pattern", "")).strip()
+            repl = str(args.get("repl", ""))
+            if pattern and isinstance(value, str):
+                return re.sub(pattern, repl, value)
+            if pattern and isinstance(value, list):
+                return [re.sub(pattern, repl, item) if isinstance(item, str) else item for item in value]
+
+        if op == "join":
+            separator = str(args.get("separator", ", "))
+            if isinstance(value, list):
+                return separator.join(str(item) for item in value if self._has_value(item))
+
+        if op == "filter_empty":
+            if isinstance(value, list):
+                return [item for item in value if self._has_value(item)]
+
+        if op == "normalize_whitespace":
+            if isinstance(value, str):
+                return normalize_text(value)
+            if isinstance(value, list):
+                return [normalize_text(item) if isinstance(item, str) else item for item in value]
+
+        if op == "to_int":
+            if isinstance(value, str):
+                match = re.search(r"-?\d+", value.replace(",", ""))
+                if match:
+                    return int(match.group(0))
+            if isinstance(value, (int, float)):
+                return int(value)
+
+        if op == "to_float":
+            if isinstance(value, str):
+                match = re.search(r"-?\d+(?:\.\d+)?", value.replace(",", ""))
+                if match:
+                    return float(match.group(0))
+            if isinstance(value, (int, float)):
+                return float(value)
 
         return value
 
