@@ -122,3 +122,38 @@ def test_rule_runtime_supports_label_value_selector():
     result = RuleRuntime().execute(build_soup(html), plan)
     assert result.data["作者"] == "张三"
     assert result.data["期刊"] == "经济研究"
+
+
+def test_rule_runtime_supports_label_value_selector_for_item_container_layout():
+    html = """
+    <html>
+      <body>
+        <div class="item-container" id="sex">
+          <div class="item-title-container"><span>性</span><span>别</span></div>
+          ：
+          <span class="item-content">女</span>
+        </div>
+        <div class="item-container" id="clinicProfessional">
+          <div class="item-title-container"><span>临</span><span>床</span><span>职</span><span>称</span></div>
+          ：
+          <span class="item-content">主任医师</span>
+        </div>
+      </body>
+    </html>
+    """
+    plan = ExtractionPlan(
+        mode="declarative",
+        fields=[
+            FieldRule(
+                field_name="性别",
+                selectors=[FieldSelectorRule(kind="label_value", value="性别")],
+            ),
+            FieldRule(
+                field_name="临床职称",
+                selectors=[FieldSelectorRule(kind="label_value", value="临床职称")],
+            ),
+        ],
+    )
+    result = RuleRuntime().execute(build_soup(html), plan)
+    assert result.data["性别"] == "女"
+    assert result.data["临床职称"] == "主任医师"

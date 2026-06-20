@@ -116,6 +116,32 @@ class RuleRuntime:
             return None
 
         values: list[str] = []
+
+        # Pattern: <div class="item-container"><div class="item-title-container">标签</div><span class="item-content">值</span></div>
+        for container in soup.select(".item-container"):
+            title_node = container.select_one(".item-title-container")
+            value_node = container.select_one(".item-content")
+            if not title_node or not value_node:
+                continue
+            title_text = normalize_text(title_node.get_text(" ", strip=True)).replace(" ", "")
+            if title_text != normalized_label.replace(" ", ""):
+                continue
+            extracted = normalize_text(value_node.get_text(" ", strip=True))
+            if extracted:
+                values.append(extracted)
+
+        if values:
+            unique_values = []
+            seen = set()
+            for value in values:
+                if value in seen:
+                    continue
+                seen.add(value)
+                unique_values.append(value)
+            if many:
+                return unique_values
+            return unique_values[0]
+
         for node in soup.find_all(["td", "th", "dt", "dd", "span", "div", "label", "strong", "b"]):
             node_text = normalize_text(node.get_text(" ", strip=True))
             if node_text != normalized_label:
