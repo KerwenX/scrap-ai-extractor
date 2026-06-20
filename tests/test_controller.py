@@ -222,3 +222,68 @@ def test_controller_reports_candidate_not_promotable_reason(tmp_path):
         assert "proposed_plan" in str(exc)
     else:
         raise AssertionError("Expected promotion to fail for candidate without proposed_plan")
+
+
+def test_candidate_with_same_fingerprint_can_upgrade_existing_template(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    weak_candidate = _build_candidate("candidate-1", dom_signature="same123")
+    strong_candidate = _build_candidate("candidate-2", dom_signature="same123").model_copy(
+        update={
+            "extracted_fields": ["title", "abstract", "author", "publish_time"],
+            "proposed_plan": ExtractionPlan(
+                fields=[
+                    FieldRule(
+                        field_name="title",
+                        selectors=[FieldSelectorRule(kind="css", value="h1")],
+                    ),
+                    FieldRule(
+                        field_name="abstract",
+                        selectors=[FieldSelectorRule(kind="css", value=".abstract")],
+                    ),
+                    FieldRule(
+                        field_name="author",
+                        selectors=[FieldSelectorRule(kind="css", value=".author")],
+                    ),
+                    FieldRule(
+                        field_name="publish_time",
+                        selectors=[FieldSelectorRule(kind="css", value=".time")],
+                    ),
+                ]
+            ),
+            "sample_data": {
+                "title": "Paper title",
+                "abstract": "Paper abstract",
+                "author": "Alice",
+                "publish_time": "2026-06-21",
+            },
+        }
+    )
+    original = service.promote_candidate_instance(
+        weak_candidate,
+        template_key="paper_detail",
+        required_fields=["title"],
+    )
+    assert original is not None
+    service.persist_candidate(strong_candidate)
+
+    controller = ExtractionController(template_service=service)
+    listed = next(
+        item
+        for item in controller.list_template_candidates()["candidates"]
+        if item["candidate_id"] == strong_candidate.candidate_id
+    )
+    assert listed["promotion_check"]["promotable"] is True
+    assert listed["promotion_check"]["action"] == "upgrade"
+    assert listed["promotion_check"]["existing_template_id"] == original.template_id
+
+    upgraded = controller.promote_template_candidate(
+        strong_candidate.candidate_id,
+        {"template_key": "paper_detail", "deactivate_previous_versions": True},
+    )
+    assert upgraded["template_id"] == "paper_detail_v2"
+    assert controller.get_template("paper_detail_v1")["active"] is False
+    assert controller.get_template("paper_detail_v2")["active"] is True

@@ -13,7 +13,7 @@
 - 校验结果
 - 调试链路信息
 
-项目目标是把“首次依赖 LLM 的抽取”逐步沉淀成“可复用、可迁移、可版本化”的正式模板 JSON + DSL。
+项目目标是把“首次依赖 LLM 的抽取”逐步沉淀为“可复用、可迁移、可版本化”的正式模板 JSON + DSL。
 
 ## 核心能力
 
@@ -21,48 +21,36 @@
 - LLM 抽取成功后：自动生成候选模板，并在条件满足时自动固化为正式模板。
 - 已存在正式模板的页面：优先走确定性模板解析。
 - 模板失效、字段缺失、校验失败时：自动回退到 LLM。
-- 模板是文件资产，可直接迁移到别的机器，不依赖数据库状态。
+- 当既有模板命中但覆盖不足，而本次 LLM 候选更完整时：自动升级既有模板，而不是裂变出一套新的模板族。
+- 模板以文件形式落盘，可直接迁移到别的机器，不依赖数据库状态。
 
-## 当前模板策略
+## 当前模板闭环
 
-当前模板系统已经收敛到“模板家族复用”：
+当前模板系统已经收敛到三种动作：
 
-- 首次 LLM 成功后，固化的是模板家族，不是单个页面样本。
-- 同站点页面会先进入候选模板集合，再综合判断命中哪个模板。
-- 正式 DSL 模板的命中不再只依赖指纹，而是依赖“运行时字段命中率 + 必填字段覆盖率 + 指纹 + 分类亲和度”综合评分。
+- `create`：不存在同指纹正式模板，直接创建新模板。
+- `upgrade`：存在同指纹正式模板，但当前候选规则覆盖更完整，自动生成新版本并停用旧版本。
+- `reuse`：既有模板已经覆盖当前候选，不再重复晋升。
 
-当前匹配大致分四层：
+这解决了之前“抽取时走了 LLM，但候选又因为已有正式模板而无法晋升”的逻辑断裂问题。
 
-1. 先按 `site_id` 过滤，只在同站点内选模板。
-2. 再看 `scenario/page_type` 亲和度，作为先验加分，不再是唯一硬门槛。
-3. 对同站点 DSL 模板逐个试跑，统计：
-   - `selector_hit_rate`
-   - `required_hit_rate`
-4. 再结合 `fingerprint_score` 做综合评分，最终选择得分最高的模板。
+## 命中策略
 
-其中：
+正式 DSL 模板的命中不再只依赖指纹，而是综合以下信号评分：
 
-- 当 `selector_hit_rate >= 0.85` 且 `required_hit_rate >= 0.85` 时，会被视为强匹配。
-- 如果多个模板都能命中，则选择综合得分最高的那个。
+- `fingerprint_score`
+- `selector_hit_rate`
+- `required_hit_rate`
+- `classification_affinity`
 
-这比“只看指纹”更稳，尤其适合同站点下有多个相近页面模板的场景。
+策略顺序：
 
-## 通用定位器
+1. 先按 `site_id` 过滤。
+2. 再看 `scenario / page_type` 亲和度。
+3. 对 DSL 模板逐个试跑，统计运行时字段命中情况。
+4. 最后结合指纹相似度得出综合得分，选择得分最高的模板。
 
-除了原有的 `css / id / meta / text_pattern / section_tab` 之外，当前 DSL 新增了：
-
-- `label_value`
-
-它用于处理这类常见结构：
-
-```html
-<tr><td>作者</td><td>张三</td></tr>
-<tr><td>期刊</td><td>经济研究</td></tr>
-```
-
-也就是“标签在左、值在右”的结构。
-
-这类页面在论文、医生、商品、资讯详情页里都很常见。加入这个定位器后，模板固化时不再强依赖值节点必须有唯一 `id/class`，模板可复用性会明显更强。
+这比“只看 DOM 指纹”更适合同站点下多页面类型并存的场景。
 
 ## 项目结构
 
@@ -167,9 +155,16 @@ python .\local_medical_html_extraction.py `
 .\scripts\stop_ui.ps1
 ```
 
-### 3. 本地模板复用基准
+如果你修改了界面代码，但浏览器仍然显示旧页面，通常是旧的 `8000` 端口进程还在运行。先执行：
 
-如果你本地有 `G:\code\AI coding\20260619-test\url_to_file_mapping.jsonl`，可以直接运行：
+```powershell
+.\scripts\run_ui.ps1 -Stop
+.\scripts\run_ui.ps1
+```
+
+### 3. 模板复用基准测试
+
+如果本地有 `G:\code\AI coding\20260619-test\url_to_file_mapping.jsonl`，可以直接运行：
 
 ```powershell
 python .\scripts\benchmark_template_reuse.py
@@ -184,20 +179,13 @@ python .\scripts\benchmark_template_reuse.py `
   --limit 20
 ```
 
-这个脚本会：
-
-- 读取本地 `url -> html` 映射
-- 自动挑选同站点论文页样本
-- 从首个样本页构建一个基准模板
-- 跑整批页面，统计模板复用命中率和覆盖率
-
-## 如何判断这次是走模板还是走 LLM
+## 如何判断本次走的是模板还是 LLM
 
 看返回结果里的：
 
 - `extractor_type`
   - `deterministic`：走正式模板
-  - `hybrid`：模板尝试后回退了 LLM
+  - `hybrid`：模板尝试后回退到 LLM
   - `llm`：直接走 LLM
 
 还可以看：
@@ -205,14 +193,6 @@ python .\scripts\benchmark_template_reuse.py `
 - `template_id`
 - `debug_trace.template_match`
 - `debug_trace.drift_report`
-
-其中 `debug_trace.template_match` 现在会带上：
-
-- `match_score`
-- `fingerprint_score`
-- `selector_hit_rate`
-- `required_hit_rate`
-- `classification_affinity`
 
 ## API
 
@@ -231,6 +211,8 @@ python .\scripts\benchmark_template_reuse.py `
 - `GET /template-candidates`
 - `GET /template-candidates/{candidate_id}`
 - `POST /template-candidates/{candidate_id}/promote`
+- `DELETE /template-candidates/{candidate_id}`
+- `POST /templates/delete-batch`
 
 ## 测试
 
@@ -239,8 +221,13 @@ pytest -q
 python -m compileall src tests
 ```
 
+当前本地验证结果：
+
+- `pytest -q`：`39 passed`
+- 医生详情页真实样本：已命中正式模板，`extractor_type=deterministic`，字段覆盖率 `1.0`
+
 ## 文档
 
-- [模板设计说明](G:\code\Extractor\scrap-ai-extractor\docs\template-design.md)
-- [架构设计](G:\code\Extractor\scrap-ai-extractor\docs\architecture.md)
-- [Java 运行时说明](G:\code\Extractor\scrap-ai-extractor\docs\java-runtime.md)
+- [模板设计说明](./docs/template-design.md)
+- [架构设计](./docs/architecture.md)
+- [Java 运行时说明](./docs/java-runtime.md)

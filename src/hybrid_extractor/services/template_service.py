@@ -8,7 +8,7 @@ from typing import List, Optional
 from urllib.parse import parse_qsl, urlparse
 
 from ..config import TEMPLATE_CANDIDATE_DIR, TEMPLATE_DIR, TEMPLATE_STORE_DIR
-from ..models import PageFingerprint, TemplateCandidate, TemplateManifest
+from ..models import ExtractionPlan, PageFingerprint, TemplateCandidate, TemplateManifest
 
 
 class TemplateService:
@@ -91,7 +91,9 @@ class TemplateService:
             and len(candidate.sample_data) == 1
             and isinstance(candidate.sample_data.get("content"), dict)
         ):
-            reasons.append("当前候选模板只抽取到了 content 对象，尚未拆解成可复用字段，因此不能直接晋升。建议重新解析以生成字段级规则。")
+            reasons.append(
+                "当前候选模板只抽取到了 content 对象，尚未拆解成可复用字段，因此不能直接晋升。"
+            )
 
         if not candidate.extracted_fields:
             reasons.append("候选模板没有 extracted_fields，缺少字段沉淀信息。")
@@ -106,22 +108,53 @@ class TemplateService:
                 candidate.scenario,
                 candidate.fingerprint,
             )
-        if existing and existing.extraction_plan is not None:
-            reasons.append(f"已存在相同指纹的正式模板：{existing.template_id}")
 
         if required_fields and candidate.proposed_plan is not None and candidate.proposed_plan.fields:
             plan_fields = {field.field_name for field in candidate.proposed_plan.fields}
             missing_required = [field for field in required_fields if field not in plan_fields]
             if missing_required:
-                reasons.append(
-                    "候选模板缺少部分必填字段规则：" + ", ".join(missing_required)
+                reasons.append("候选模板缺少部分必填字段规则：" + ", ".join(missing_required))
+
+        existing_plan_fields = self._plan_field_names(existing.extraction_plan) if existing else set()
+        candidate_plan_fields = self._plan_field_names(candidate.proposed_plan)
+        target_fields = self._target_fields(candidate, required_fields)
+
+        action = "blocked"
+        action_label = "不可晋升"
+        detail = ""
+        if not reasons:
+            if existing is None:
+                action = "create"
+                action_label = "新建正式模板"
+                detail = "当前不存在同指纹正式模板，可以直接固化为新模板。"
+            else:
+                comparison = self._compare_candidate_to_existing(
+                    candidate_plan_fields,
+                    existing_plan_fields,
+                    target_fields,
                 )
+                if comparison["should_upgrade"]:
+                    action = "upgrade"
+                    action_label = "升级既有模板"
+                    detail = f"候选规则覆盖更完整，建议基于 {existing.template_id} 生成新版本。"
+                else:
+                    action = "reuse"
+                    action_label = "已被既有模板覆盖"
+                    detail = (
+                        f"既有正式模板 {existing.template_id} 已覆盖当前候选规则，无需再次晋升。"
+                    )
 
         return {
-            "promotable": len(reasons) == 0,
+            "promotable": action in {"create", "upgrade"},
+            "action": action,
+            "action_label": action_label,
+            "detail": detail,
             "reasons": reasons,
             "existing_template_id": existing.template_id if existing else None,
             "has_plan": bool(candidate.proposed_plan and candidate.proposed_plan.fields),
+            "extracted_field_count": len(candidate.extracted_fields),
+            "candidate_field_count": len(candidate_plan_fields),
+            "existing_field_count": len(existing_plan_fields),
         }
 
     def delete_manifest(self, template_id: str) -> bool:
@@ -224,8 +257,38 @@ class TemplateService:
             candidate.scenario,
             candidate.fingerprint,
         )
-        if existing and existing.extraction_plan is not None:
-            return existing
+        if existing is not None:
+            check = self.inspect_candidate_promotability(candidate, required_fields)
+            if check["action"] == "reuse":
+                return existing
+            if check["action"] == "blocked":
+                return None
+            if check["action"] == "upgrade":
+                normalized_key = self._normalize_template_key(
+                    template_key or existing.template_key or self._default_template_key(candidate)
+                )
+                version = self._next_version_for_key(normalized_key)
+                template_id = f"{normalized_key}_{version}"
+                self._deactivate_manifests_by_key(normalized_key)
+                manifest = TemplateManifest(
+                    template_id=template_id,
+                    parser_key="generic:rule",
+                    site_id=candidate.site_id,
+                    site_name=candidate.site_name,
+                    page_type=candidate.page_type,
+                    scenario=candidate.scenario,
+                    version=version,
+                    template_key=normalized_key,
+                    lifecycle_status="active",
+                    active=True,
+                    fingerprint=candidate.fingerprint,
+                    required_fields=required_fields or candidate.extracted_fields,
+                    extraction_plan=candidate.proposed_plan,
+                    notes=f"Upgraded from template {existing.template_id} using candidate {candidate.candidate_id}.",
+                    source_candidate_id=candidate.candidate_id,
+                )
+                self.upsert_manifest(manifest)
+                return manifest
 
         normalized_key = self._normalize_template_key(template_key or self._default_template_key(candidate))
         version = self._next_version_for_key(normalized_key)
@@ -268,18 +331,10 @@ class TemplateService:
         if "name" in required_fields and "name" not in plan_fields:
             return None
 
-        existing = self.find_manifest_by_fingerprint(
-            candidate.site_id,
-            candidate.scenario,
-            candidate.fingerprint,
-        )
-        if existing and existing.extraction_plan is not None:
-            return existing
-
         effective_required_fields = covered_required if covered_required else sorted(plan_fields)
         manifest = self.promote_candidate_instance(
             candidate,
-            template_key=self._default_template_key(candidate),
+            template_key=None,
             required_fields=effective_required_fields,
             deactivate_previous_versions=False,
         )
@@ -374,14 +429,58 @@ class TemplateService:
             current_required = list(manifest.required_fields)
             overlap = [field for field in current_required if field in plan_fields]
 
-            # Heal historical manifests whose required_fields were copied from LLM output
-            # but whose DSL only learned a much smaller executable subset.
             if not current_required:
                 updates["required_fields"] = plan_fields
             elif len(overlap) / len(current_required) < 0.6:
                 updates["required_fields"] = overlap if overlap else plan_fields
 
         return manifest.model_copy(update=updates)
+
+    def _plan_field_names(self, plan: ExtractionPlan | None) -> set[str]:
+        if plan is None or not plan.fields:
+            return set()
+        return {field.field_name for field in plan.fields}
+
+    def _target_fields(
+        self,
+        candidate: TemplateCandidate,
+        required_fields: list[str] | None,
+    ) -> list[str]:
+        if required_fields:
+            return list(required_fields)
+        if candidate.extracted_fields:
+            return list(candidate.extracted_fields)
+        return sorted(self._plan_field_names(candidate.proposed_plan))
+
+    def _compare_candidate_to_existing(
+        self,
+        candidate_fields: set[str],
+        existing_fields: set[str],
+        target_fields: list[str],
+    ) -> dict[str, float | bool]:
+        if not existing_fields:
+            coverage = 1.0 if candidate_fields else 0.0
+            return {
+                "candidate_coverage": coverage,
+                "existing_coverage": 0.0,
+                "coverage_delta": coverage,
+                "should_upgrade": bool(candidate_fields),
+            }
+
+        target_set = set(target_fields or sorted(candidate_fields | existing_fields))
+        candidate_coverage = len(candidate_fields & target_set) / len(target_set) if target_set else 0.0
+        existing_coverage = len(existing_fields & target_set) / len(target_set) if target_set else 0.0
+        coverage_delta = candidate_coverage - existing_coverage
+        richer_fields = len(candidate_fields) > len(existing_fields)
+        should_upgrade = coverage_delta >= 0.15 or (
+            candidate_coverage >= existing_coverage and richer_fields
+        )
+        return {
+            "candidate_coverage": round(candidate_coverage, 4),
+            "existing_coverage": round(existing_coverage, 4),
+            "coverage_delta": round(coverage_delta, 4),
+            "should_upgrade": should_upgrade,
+        }
 
     def _slug(self, value: str) -> str:
         return "".join(ch if ch.isalnum() else "_" for ch in value).strip("_") or "unknown"
