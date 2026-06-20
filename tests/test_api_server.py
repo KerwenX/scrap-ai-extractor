@@ -80,7 +80,7 @@ def test_api_server_health_and_template_management_responses():
             with urllib.request.urlopen(f"{base_url}/") as response:
                 html = response.read().decode("utf-8")
                 assert "<title>混合网页解析器</title>" in html
-                assert "删除选中" in html
+                assert "批量模板解析" in html
                 assert 'id="detailSummary"' in html
                 assert "buildDetailSummary" in html
                 assert 'id="progressList"' in html
@@ -145,6 +145,78 @@ def test_api_server_health_and_template_management_responses():
                 payload = json.loads(exc.read().decode("utf-8"))
                 assert exc.code == 400
                 assert payload["error"] == "Invalid JSON body"
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+            ApiHandler.controller = original_controller
+
+
+def test_api_server_batch_extract_requires_url_and_writes_result_file():
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        html_path = root / "sample.html"
+        html_path.write_text("<html><body><h1>Sample</h1></body></html>", encoding="utf-8")
+
+        service = TemplateService(
+            template_dir=root / "templates",
+            template_store_dir=root / "template_store",
+            template_candidate_dir=root / "template_candidates",
+        )
+
+        original_controller = ApiHandler.controller
+        ApiHandler.controller = ExtractionController(template_service=service)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ApiHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_port}"
+
+        try:
+            output_path = root / "results.jsonl"
+            batch_request = urllib.request.Request(
+                f"{base_url}/extract/batch",
+                data=json.dumps(
+                    {
+                        "jsonl_content": json.dumps(
+                            {
+                                "url": "https://example.com/a",
+                                "html_path": str(html_path),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "user_prompt": "提取标题",
+                        "output_jsonl_path": str(output_path),
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with urllib.request.urlopen(batch_request) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                assert payload["output_jsonl_path"] == str(output_path)
+                assert payload["total_count"] == 1
+                assert Path(payload["output_jsonl_path"]).exists()
+                line = json.loads(Path(payload["output_jsonl_path"]).read_text(encoding="utf-8").strip())
+                assert line["url"] == "https://example.com/a"
+                assert line["extractor_type"] in {"none", "deterministic"}
+
+            invalid_batch_request = urllib.request.Request(
+                f"{base_url}/extract/batch",
+                data=json.dumps(
+                    {
+                        "jsonl_content": json.dumps({"html_path": str(html_path)}, ensure_ascii=False),
+                        "user_prompt": "提取标题",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            try:
+                urllib.request.urlopen(invalid_batch_request)
+            except urllib.error.HTTPError as exc:
+                payload = json.loads(exc.read().decode("utf-8"))
+                assert exc.code == 400
+                assert "missing url" in payload["error"]
         finally:
             server.shutdown()
             server.server_close()

@@ -454,3 +454,34 @@ def test_engine_validates_unwrapped_llm_content_payload(tmp_path):
     assert response.data["姓名"] == "苏惠萍"
     assert response.data["简介"] == "苏惠萍，主任医师。"
     assert response.validation_report.passed is True
+def test_template_only_mode_requires_url():
+    engine = HybridExtractionEngine(fallback_extractor=GenericFallbackExtractor())
+    request = ExtractionRequest(
+        url="",
+        raw_html="<html><body><h1>Paper</h1></body></html>",
+        user_prompt="extract title",
+        run_mode="template_only",
+    )
+
+    try:
+        engine.extract(request)
+    except ValueError as exc:
+        assert "requires a non-empty url" in str(exc)
+    else:
+        raise AssertionError("Expected template_only mode to require url")
+
+
+def test_template_only_mode_never_falls_back_to_llm():
+    engine = HybridExtractionEngine(fallback_extractor=GenericFallbackExtractor())
+    request = ExtractionRequest(
+        url="https://example.com/no-template",
+        raw_html="<html><body><h1>Paper</h1></body></html>",
+        user_prompt="extract title",
+        run_mode="template_only",
+    )
+
+    response = engine.extract(request)
+    assert response.status == "failed"
+    assert response.extractor_type == "none"
+    assert response.data == {}
+    assert response.debug_trace["template_only_failure"]["reason"] == "no_matching_active_template"

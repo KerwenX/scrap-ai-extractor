@@ -1,3 +1,5 @@
+import json
+
 from hybrid_extractor.controllers import ExtractionController
 from hybrid_extractor.models import (
     ExtractionPlan,
@@ -205,9 +207,7 @@ def test_controller_reports_candidate_not_promotable_reason(tmp_path):
         template_store_dir=tmp_path / "template_store",
         template_candidate_dir=tmp_path / "template_candidates",
     )
-    candidate = _build_candidate("candidate-1").model_copy(
-        update={"proposed_plan": None}
-    )
+    candidate = _build_candidate("candidate-1").model_copy(update={"proposed_plan": None})
     service.persist_candidate(candidate)
     controller = ExtractionController(template_service=service)
 
@@ -216,12 +216,12 @@ def test_controller_reports_candidate_not_promotable_reason(tmp_path):
     assert "proposed_plan" in listed["promotion_check"]["reasons"][0]
 
     try:
-        controller.promote_template_candidate(candidate.candidate_id, {})
+      controller.promote_template_candidate(candidate.candidate_id, {})
     except ValueError as exc:
-        assert "not promotable" in str(exc)
-        assert "proposed_plan" in str(exc)
+      assert "not promotable" in str(exc)
+      assert "proposed_plan" in str(exc)
     else:
-        raise AssertionError("Expected promotion to fail for candidate without proposed_plan")
+      raise AssertionError("Expected promotion to fail for candidate without proposed_plan")
 
 
 def test_candidate_with_same_fingerprint_can_upgrade_existing_template(tmp_path):
@@ -236,22 +236,10 @@ def test_candidate_with_same_fingerprint_can_upgrade_existing_template(tmp_path)
             "extracted_fields": ["title", "abstract", "author", "publish_time"],
             "proposed_plan": ExtractionPlan(
                 fields=[
-                    FieldRule(
-                        field_name="title",
-                        selectors=[FieldSelectorRule(kind="css", value="h1")],
-                    ),
-                    FieldRule(
-                        field_name="abstract",
-                        selectors=[FieldSelectorRule(kind="css", value=".abstract")],
-                    ),
-                    FieldRule(
-                        field_name="author",
-                        selectors=[FieldSelectorRule(kind="css", value=".author")],
-                    ),
-                    FieldRule(
-                        field_name="publish_time",
-                        selectors=[FieldSelectorRule(kind="css", value=".time")],
-                    ),
+                    FieldRule(field_name="title", selectors=[FieldSelectorRule(kind="css", value="h1")]),
+                    FieldRule(field_name="abstract", selectors=[FieldSelectorRule(kind="css", value=".abstract")]),
+                    FieldRule(field_name="author", selectors=[FieldSelectorRule(kind="css", value=".author")]),
+                    FieldRule(field_name="publish_time", selectors=[FieldSelectorRule(kind="css", value=".time")]),
                 ]
             ),
             "sample_data": {
@@ -287,3 +275,36 @@ def test_candidate_with_same_fingerprint_can_upgrade_existing_template(tmp_path)
     assert upgraded["template_id"] == "paper_detail_v2"
     assert controller.get_template("paper_detail_v1")["active"] is False
     assert controller.get_template("paper_detail_v2")["active"] is True
+
+
+def test_controller_extract_batch_requires_url_and_returns_output_file(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    html_path = tmp_path / "sample.html"
+    html_path.write_text("<html><body><h1>Sample</h1></body></html>", encoding="utf-8")
+    controller = ExtractionController(template_service=service)
+
+    payload = controller.extract_batch(
+        {
+            "jsonl_content": json.dumps({"url": "https://example.com/1", "html_path": str(html_path)}, ensure_ascii=False),
+            "user_prompt": "提取标题",
+            "output_jsonl_path": str(tmp_path / "batch-results.jsonl"),
+        }
+    )
+    assert payload["total_count"] == 1
+    assert payload["results"][0]["url"] == "https://example.com/1"
+
+    try:
+        controller.extract_batch(
+            {
+                "jsonl_content": json.dumps({"html_path": str(html_path)}, ensure_ascii=False),
+                "user_prompt": "提取标题",
+            }
+        )
+    except ValueError as exc:
+        assert "missing url" in str(exc)
+    else:
+        raise AssertionError("Expected missing url validation to fail")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ..models import ExtractionRequest
+from ..models import BatchExtractionRequest, ExtractionRequest
 from ..services.extraction_service import ExtractionService
 from ..services.template_service import TemplateService
 
@@ -21,6 +21,11 @@ class ExtractionController:
     def extract(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         request = ExtractionRequest.model_validate(payload)
         response = self.extraction_service.extract(request)
+        return response.model_dump()
+
+    def extract_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        request = BatchExtractionRequest.model_validate(payload)
+        response = self.extraction_service.extract_batch(request)
         return response.model_dump()
 
     def list_templates(self) -> Dict[str, Any]:
@@ -92,7 +97,7 @@ class ExtractionController:
             if candidate is None:
                 raise ValueError(f"Template candidate not found: {candidate_id}")
             check = self.template_service.inspect_candidate_promotability(candidate, required_fields)
-            reason_text = "；".join(check["reasons"]) if check["reasons"] else "缺少可执行抽取规则。"
+            reason_text = "；".join(check["reasons"]) if check["reasons"] else "缺少可执行的抽取规则。"
             raise ValueError(f"Template candidate not promotable: {candidate_id}. {reason_text}")
         return manifest.model_dump()
 

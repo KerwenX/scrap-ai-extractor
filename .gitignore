@@ -9,4 +9,5 @@ build/
 result.json
 Scrapegraph-ai/
 data/template_candidates/
+data/batch_results/
 config/app_config.json

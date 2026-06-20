@@ -48,6 +48,9 @@ class HybridExtractionEngine:
         logger_extra = {"request_id": request.request_id}
         self.logger.info("Starting extraction", extra=logger_extra)
 
+        if request.run_mode == "template_only" and not request.url.strip():
+            raise ValueError("Template-only extraction requires a non-empty url.")
+
         cleaned_html = clean_html(request.raw_html)
         request = request.model_copy(update={"raw_html": cleaned_html})
         soup = build_soup(cleaned_html)
@@ -61,6 +64,7 @@ class HybridExtractionEngine:
         )
         debug_trace = {
             "page_title": title,
+            "run_mode": request.run_mode,
             "classification": classification.model_dump(),
             "fingerprint": fingerprint.model_dump(),
             "template_match": match.model_dump() if match else None,
@@ -148,6 +152,40 @@ class HybridExtractionEngine:
                 "Deterministic parsing requested fallback; reason=%s",
                 drift_report["reason"],
                 extra=logger_extra,
+            )
+
+            if request.run_mode == "template_only":
+                return ExtractionResponse(
+                    request_id=request.request_id,
+                    status="failed",
+                    template_id=match.template_id,
+                    page_type=match.page_type,
+                    extractor_type="deterministic",
+                    confidence=round(max(match.match_score, validation.coverage), 3),
+                    drift_detected=drift_detected,
+                    data=deterministic_result.data,
+                    validation_report=validation,
+                    debug_trace=debug_trace,
+                )
+
+        if request.run_mode == "template_only":
+            return ExtractionResponse(
+                request_id=request.request_id,
+                status="failed",
+                template_id=None,
+                page_type=classification.page_type,
+                extractor_type="none",
+                confidence=0.0,
+                drift_detected=False,
+                data={},
+                validation_report=validate_data({}, []),
+                debug_trace={
+                    **debug_trace,
+                    "template_only_failure": {
+                        "reason": "no_matching_active_template",
+                        "message": "No active template matched the provided url and html.",
+                    },
+                },
             )
 
         llm_result = self.fallback_extractor.extract(request, intent)

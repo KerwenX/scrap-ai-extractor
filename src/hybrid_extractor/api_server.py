@@ -56,6 +56,21 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Internal server error", "details": str(exc)})
             return
 
+        if route == "/extract/batch":
+            try:
+                payload = self._read_json_body()
+                response = self.controller.extract_batch(payload)
+                self._send_json(200, response)
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON body"})
+            except ValidationError as exc:
+                self._send_json(422, {"error": "Invalid request payload", "details": exc.errors()})
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+            except Exception as exc:
+                self._send_json(500, {"error": "Internal server error", "details": str(exc)})
+            return
+
         if route.endswith("/promote") and route.startswith("/template-candidates/"):
             candidate_id = route.removeprefix("/template-candidates/").removesuffix("/promote")
             self._handle_candidate_promotion(candidate_id)

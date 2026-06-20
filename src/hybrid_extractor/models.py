@@ -104,6 +104,7 @@ class ExtractionRequest(BaseModel):
     url: str = ""
     raw_html: str
     user_prompt: str
+    run_mode: Literal["auto", "template_only"] = "auto"
 
 
 class ExtractionResult(BaseModel):
@@ -171,3 +172,26 @@ class ExtractionResponse(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
     validation_report: ValidationReport
     debug_trace: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchExtractionItem(BaseModel):
+    url: str
+    html_path: str
+
+
+class BatchExtractionRequest(BaseModel):
+    request_id: str = Field(default_factory=lambda: str(uuid4()))
+    jsonl_path: str = ""
+    jsonl_content: str = ""
+    user_prompt: str
+    output_jsonl_path: str = ""
+
+
+class BatchExtractionResponse(BaseModel):
+    request_id: str
+    status: Literal["success", "failed"]
+    output_jsonl_path: str = ""
+    total_count: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    results: List[Dict[str, Any]] = Field(default_factory=list)
