@@ -58,6 +58,7 @@ Java 运行时本身不负责升级模板，但它消费的模板体系必须基
 - [HtmlTemplateExtractor.java](./java/HtmlTemplateExtractor.java)
 - [CachedTemplateExtractionService.java](./java/CachedTemplateExtractionService.java)
 - [TemplateExtractionApi.java](./java/TemplateExtractionApi.java)
+- [TemplateRuntimeDiagnostics.java](./java/TemplateRuntimeDiagnostics.java)
 
 ## 4. Maven 依赖
 
@@ -246,7 +247,83 @@ api.reloadTemplates();
 System.out.println(api.getLoadedTemplateCount());
 ```
 
-## 10. AJCASS 论文页实测情况
+## 10. 跨机器失败时如何诊断
+
+如果你遇到下面这种情况：
+
+- 本机 Java 程序可以抽取成功
+- 另一台机器代码、模板、HTML、Java 8 看起来都一致
+- 但另一台机器抽取失败或返回空结果
+
+优先不要猜，先跑诊断类：
+
+- [TemplateRuntimeDiagnostics.java](./java/TemplateRuntimeDiagnostics.java)
+
+### 10.1 诊断类作用
+
+它会一次性打印这些信息：
+
+- Java 版本、操作系统、默认字符集、工作目录
+- 模板目录是否存在、HTML 文件是否存在
+- HTML 字节长度、文本长度、SHA-256、前 300 个字符预览
+- 实际加载到的模板数量与模板列表
+- 自动匹配到的模板 ID 与分数
+- 自动抽取结果
+- 指定模板直抽结果
+
+这能快速区分四类问题：
+
+1. 模板根本没加载到
+2. 自动匹配失败，但指定模板其实可以抽
+3. HTML 读取编码不对，导致中文/结构信号失真
+4. 另一台机器实际运行的依赖、工作目录、输入文件并不一致
+
+### 10.2 运行方式
+
+```java
+java TemplateRuntimeDiagnostics <templateDir> <htmlPath> [url] [templateId]
+```
+
+示例：
+
+```java
+java TemplateRuntimeDiagnostics ^
+  G:\code\Extractor\scrap-ai-extractor\data ^
+  E:\Documents\Downloads\新分类模式下的转移支付财力均等化效应再评估.html ^
+  "https://erj.ajcass.com/#/issue?id=123010&year=2026&issue=5" ^
+  ajcass_com_detail_page_detail_page_c5d7b04b_v3
+```
+
+### 10.3 怎么看结果
+
+如果输出表现为：
+
+- `loadedTemplateCount=0`
+  - 说明模板目录没加载对，先检查路径、打包方式、resources 读取方式
+
+- `matchedTemplateId=null`，但“指定模板直抽”有结果
+  - 说明问题在模板命中层，不在模板执行层
+
+- “指定模板直抽”也为空
+  - 说明问题更可能在 HTML 读取、编码、模板内容、依赖版本
+
+- 两台机器 `html.sha256` 不一致
+  - 说明你以为是同一份 HTML，但实际输入已经不同
+
+- 两台机器 `loadedTemplates=` 不一致
+  - 说明模板仓并没有真正同步一致
+
+### 10.4 最常见的真实原因
+
+按优先级，最值得先查的是：
+
+1. 模板目录路径不一致，另一台机器没有真正读到模板仓
+2. HTML 文件编码不同，却统一按 `UTF-8` 读取
+3. 运行的不是同一份 class / jar
+4. `jsoup` / `jackson` 版本不一致
+5. 另一台机器工作目录不同，导致相对路径读取错位
+
+## 11. AJCASS 论文页实测情况
 
 当前 `erj.ajcass.com` 同站点论文页，已经可复用：
 
@@ -268,7 +345,7 @@ System.out.println(api.getLoadedTemplateCount());
 - `稿件来源`
 - `期刊`
 
-## 11. Spring Boot 建议封装
+## 12. Spring Boot 建议封装
 
 推荐在业务工程里再包一层自己的服务，例如：
 
@@ -296,7 +373,7 @@ public class TemplateParsingService {
 }
 ```
 
-## 12. 生产使用建议
+## 13. 生产使用建议
 
 推荐最终落地方式：
 

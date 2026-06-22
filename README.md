@@ -347,3 +347,4 @@ python -m compileall src tests
 - [模板设计说明](./docs/template-design.md)
 - [架构设计](./docs/architecture.md)
 - [Java 运行时说明](./docs/java-runtime.md)
+  - 包含跨机器抽取失败时的 Java 诊断类说明
