@@ -41,7 +41,9 @@ def _build_candidate(candidate_id: str, dom_signature: str = "abc123") -> Templa
 
 
 def test_controller_lists_builtin_templates():
-    controller = ExtractionController()
+    controller = ExtractionController(
+        template_service=TemplateService(include_builtin_templates=True)
+    )
     payload = controller.list_templates()
     template_ids = {item["template_id"] for item in payload["templates"]}
     assert "dayi_disease_v1" in template_ids
@@ -82,13 +84,15 @@ def test_controller_manages_templates_and_candidates(tmp_path):
     candidates_payload = controller.list_template_candidates()
     assert any(item["candidate_id"] == candidate.candidate_id for item in candidates_payload["candidates"])
     listed_candidate = next(item for item in candidates_payload["candidates"] if item["candidate_id"] == candidate.candidate_id)
-    assert listed_candidate["promotion_check"]["promotable"] is False
-    assert listed_candidate["promotion_check"]["existing_template_id"] == manifest.template_id
+    assert listed_candidate["promotion_check"]["promotable"] is True
+    assert listed_candidate["promotion_check"]["action"] == "create"
+    assert listed_candidate["promotion_check"]["existing_template_id"] is None
 
     candidate_payload = controller.get_template_candidate(candidate.candidate_id)
     assert candidate_payload["sample_data"]["title"] == "Paper title"
-    assert candidate_payload["promotion_check"]["promotable"] is False
-    assert candidate_payload["promotion_check"]["existing_template_id"] == manifest.template_id
+    assert candidate_payload["promotion_check"]["promotable"] is True
+    assert candidate_payload["promotion_check"]["action"] == "create"
+    assert candidate_payload["promotion_check"]["existing_template_id"] is None
 
 
 def test_controller_promotes_candidate_with_versioned_template_key(tmp_path):
@@ -178,8 +182,9 @@ def test_template_key_auto_generation_uses_page_type_and_url_hash_family_key(tmp
     manifest = service.solidify_candidate(candidate, required_fields=["title"])
     assert manifest is not None
     assert manifest.template_key.startswith("example_com_article_detail_detail_page_")
-    assert not manifest.template_key.endswith("_abc123def456")
+    assert manifest.template_key.endswith("_abc123def456")
     assert manifest.required_fields == ["title"]
+    assert manifest.url_pattern_hash == service.build_url_pattern_hash_for_url(candidate.source_url)
 
 
 def test_historical_manifest_required_fields_are_normalized_to_executable_plan(tmp_path):
@@ -256,6 +261,7 @@ def test_candidate_with_same_fingerprint_can_upgrade_existing_template(tmp_path)
         required_fields=["title"],
     )
     assert original is not None
+    strong_candidate = strong_candidate.model_copy(update={"matched_template_id": original.template_id})
     service.persist_candidate(strong_candidate)
 
     controller = ExtractionController(template_service=service)

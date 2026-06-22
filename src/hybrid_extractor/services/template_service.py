@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import parse_qsl, urlparse
 
-from ..config import TEMPLATE_CANDIDATE_DIR, TEMPLATE_DIR, TEMPLATE_STORE_DIR
+from ..config import TEMPLATE_CANDIDATE_DIR, TEMPLATE_DIR, TEMPLATE_STORE_DIR, load_app_settings
 from ..models import ExtractionPlan, PageFingerprint, TemplateCandidate, TemplateManifest
 
 
@@ -17,10 +17,14 @@ class TemplateService:
         template_dir: Path | None = None,
         template_store_dir: Path | None = None,
         template_candidate_dir: Path | None = None,
+        include_builtin_templates: bool | None = None,
     ) -> None:
         self.template_dir = template_dir or TEMPLATE_DIR
         self.template_store_dir = template_store_dir or TEMPLATE_STORE_DIR
         self.template_candidate_dir = template_candidate_dir or TEMPLATE_CANDIDATE_DIR
+        if include_builtin_templates is None:
+            include_builtin_templates = load_app_settings().builtin_templates_enabled
+        self.include_builtin_templates = include_builtin_templates
         self.template_store_dir.mkdir(parents=True, exist_ok=True)
         self.template_candidate_dir.mkdir(parents=True, exist_ok=True)
         self._manifest_cache: list[TemplateManifest] | None = None
@@ -29,12 +33,17 @@ class TemplateService:
         self._candidate_cache_signature: tuple | None = None
 
     def load_manifests(self) -> List[TemplateManifest]:
-        signature = self._directory_signature((self.template_store_dir, self.template_dir))
+        directories = (
+            (self.template_store_dir, self.template_dir)
+            if self.include_builtin_templates
+            else (self.template_store_dir,)
+        )
+        signature = self._directory_signature(directories)
         if self._manifest_cache is not None and signature == self._manifest_cache_signature:
             return list(self._manifest_cache)
 
         manifests: list[TemplateManifest] = []
-        for directory in (self.template_store_dir, self.template_dir):
+        for directory in directories:
             if not directory.exists():
                 continue
             for path in sorted(directory.glob("*.json")):
@@ -101,13 +110,7 @@ class TemplateService:
         if candidate.fingerprint is None or not candidate.fingerprint.dom_signature:
             reasons.append("候选模板缺少页面指纹，无法安全匹配正式模板。")
 
-        existing = None
-        if candidate.fingerprint is not None:
-            existing = self.find_manifest_by_fingerprint(
-                candidate.site_id,
-                candidate.scenario,
-                candidate.fingerprint,
-            )
+        existing = self._resolve_upgrade_target(candidate)
 
         if required_fields and candidate.proposed_plan is not None and candidate.proposed_plan.fields:
             plan_fields = {field.field_name for field in candidate.proposed_plan.fields}
@@ -252,11 +255,7 @@ class TemplateService:
         if candidate.proposed_plan is None or not candidate.proposed_plan.fields:
             return None
 
-        existing = self.find_manifest_by_fingerprint(
-            candidate.site_id,
-            candidate.scenario,
-            candidate.fingerprint,
-        )
+        existing = self._resolve_upgrade_target(candidate)
         if existing is not None:
             check = self.inspect_candidate_promotability(candidate, required_fields)
             if check["action"] == "reuse":
@@ -279,6 +278,8 @@ class TemplateService:
                     scenario=candidate.scenario,
                     version=version,
                     template_key=normalized_key,
+                    url_pattern=self._normalize_url_pattern(candidate.source_url),
+                    url_pattern_hash=self._build_url_pattern_hash(candidate.source_url),
                     lifecycle_status="active",
                     active=True,
                     fingerprint=candidate.fingerprint,
@@ -290,7 +291,9 @@ class TemplateService:
                 self.upsert_manifest(manifest)
                 return manifest
 
-        normalized_key = self._normalize_template_key(template_key or self._default_template_key(candidate))
+        normalized_key = self._normalize_template_key(
+            template_key or self._build_template_key_from_signature(candidate)
+        )
         version = self._next_version_for_key(normalized_key)
         template_id = f"{normalized_key}_{version}"
         manifest = TemplateManifest(
@@ -302,6 +305,8 @@ class TemplateService:
             scenario=candidate.scenario,
             version=version,
             template_key=normalized_key,
+            url_pattern=self._normalize_url_pattern(candidate.source_url),
+            url_pattern_hash=self._build_url_pattern_hash(candidate.source_url),
             lifecycle_status="active",
             active=True,
             fingerprint=candidate.fingerprint,
@@ -325,13 +330,15 @@ class TemplateService:
         if candidate.proposed_plan is None or not candidate.proposed_plan.fields:
             return None
         plan_fields = {field.field_name for field in candidate.proposed_plan.fields}
+        structural_required = self._structural_required_fields(candidate.proposed_plan)
         covered_required = [field for field in required_fields if field in plan_fields]
-        if required_fields and len(covered_required) / len(required_fields) < 0.6:
-            return None
-        if "name" in required_fields and "name" not in plan_fields:
-            return None
+        if not structural_required:
+            if required_fields and len(covered_required) / len(required_fields) < 0.6:
+                return None
+            if "name" in required_fields and "name" not in plan_fields:
+                return None
 
-        effective_required_fields = covered_required if covered_required else sorted(plan_fields)
+        effective_required_fields = structural_required or covered_required or sorted(plan_fields)
         manifest = self.promote_candidate_instance(
             candidate,
             template_key=None,
@@ -346,6 +353,11 @@ class TemplateService:
         self.upsert_manifest(manifest)
         return manifest
 
+    def _resolve_upgrade_target(self, candidate: TemplateCandidate) -> TemplateManifest | None:
+        if not candidate.matched_template_id:
+            return None
+        return self.get_manifest(candidate.matched_template_id)
+
     def find_manifest_by_fingerprint(
         self,
         site_id: str,
@@ -353,7 +365,7 @@ class TemplateService:
         fingerprint: PageFingerprint,
     ) -> TemplateManifest | None:
         for manifest in self.load_manifests():
-            if manifest.site_id != site_id or manifest.scenario != scenario:
+            if not self._site_matches(manifest.site_id, site_id) or manifest.scenario != scenario:
                 continue
             if manifest.fingerprint and manifest.fingerprint.dom_signature == fingerprint.dom_signature:
                 return manifest
@@ -364,7 +376,7 @@ class TemplateService:
         return f"{template_key}_v1"
 
     def _build_template_key_from_signature(self, candidate: TemplateCandidate) -> str:
-        site = self._slug(candidate.site_id or "unknown")
+        site = self._slug(self._site_family(candidate.site_id) or candidate.site_id or "unknown")
         scenario = self._slug(candidate.scenario or "unknown")
         page_type = self._slug(candidate.page_type or "unknown")
         url_hash = self._build_url_pattern_hash(candidate.source_url)
@@ -372,7 +384,7 @@ class TemplateService:
         return f"{site}_{scenario}_{page_type}_{url_hash}_{signature}"
 
     def _default_template_key(self, candidate: TemplateCandidate) -> str:
-        site = self._slug(candidate.site_id or "unknown")
+        site = self._slug(self._site_family(candidate.site_id) or candidate.site_id or "unknown")
         scenario = self._slug(candidate.scenario or "unknown")
         page_type = self._slug(candidate.page_type or "unknown")
         url_hash = self._build_url_pattern_hash(candidate.source_url)
@@ -423,6 +435,12 @@ class TemplateService:
         else:
             active = manifest.active
         updates = {"lifecycle_status": lifecycle_status, "active": active}
+        if not manifest.url_pattern_hash and manifest.source_candidate_id is None:
+            updates["url_pattern_hash"] = self._infer_url_pattern_hash_from_template_key(manifest.template_key)
+        elif not manifest.url_pattern_hash:
+            updates["url_pattern_hash"] = self._infer_url_pattern_hash_from_template_key(manifest.template_key)
+        if not manifest.url_pattern:
+            updates["url_pattern"] = self._infer_url_pattern_from_template_key(manifest.template_key)
 
         if manifest.extraction_plan and manifest.extraction_plan.fields:
             plan_fields = [field.field_name for field in manifest.extraction_plan.fields]
@@ -451,6 +469,20 @@ class TemplateService:
         if candidate.extracted_fields:
             return list(candidate.extracted_fields)
         return sorted(self._plan_field_names(candidate.proposed_plan))
+
+    def _structural_required_fields(self, plan: ExtractionPlan | None) -> list[str]:
+        if plan is None or not plan.fields:
+            return []
+
+        required: list[str] = []
+        for field in plan.fields:
+            kinds = {selector.kind for selector in field.selectors}
+            if field.field_name == "标题" and field.field_name not in required:
+                required.append(field.field_name)
+                continue
+            if {"all_label_values", "all_sections"} & kinds and field.field_name not in required:
+                required.append(field.field_name)
+        return required
 
     def _compare_candidate_to_existing(
         self,
@@ -489,11 +521,15 @@ class TemplateService:
         normalized = self._normalize_url_pattern(url)
         return sha1(normalized.encode("utf-8")).hexdigest()[:8]
 
+    def build_url_pattern_hash_for_url(self, url: str) -> str:
+        return self._build_url_pattern_hash(url)
+
     def _normalize_url_pattern(self, url: str) -> str:
         if not url:
             return "no_url"
         parsed = urlparse(url)
-        host = (parsed.netloc or parsed.path or "unknown").lower()
+        raw_host = (parsed.netloc or parsed.path or "unknown").lower()
+        host = self._site_family(raw_host) or raw_host
         path = parsed.path or "/"
         normalized_segments: list[str] = []
         for segment in path.split("/"):
@@ -511,6 +547,37 @@ class TemplateService:
         query_keys = sorted(key for key, _ in parse_qsl(parsed.query, keep_blank_values=True))
         query_part = "&".join(query_keys)
         return f"{host}|{normalized_path}|{query_part}"
+
+    def _infer_url_pattern_hash_from_template_key(self, template_key: str) -> str:
+        if not template_key:
+            return ""
+        normalized = re.sub(r"_v\d+$", "", template_key)
+        match = re.search(r"_([0-9a-f]{8})(?:_[0-9a-f]{12})?$", normalized)
+        if not match:
+            return ""
+        return match.group(1)
+
+    def _infer_url_pattern_from_template_key(self, template_key: str) -> str:
+        return ""
+
+    def _site_matches(self, left: str, right: str) -> bool:
+        return bool(left and right and self._site_family(left) == self._site_family(right))
+
+    def _site_family(self, site_id: str) -> str:
+        site_id = (site_id or "").strip().lower()
+        if not site_id or site_id == "unknown":
+            return ""
+
+        host = urlparse(f"https://{site_id}").netloc or site_id
+        if host.startswith("www."):
+            host = host[4:]
+
+        parts = [part for part in host.split(".") if part]
+        if len(parts) <= 2:
+            return host
+        if len(parts[-1]) == 2 and len(parts[-2]) <= 3:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:])
 
     def _directory_signature(self, directories: tuple[Path, ...]) -> tuple:
         signature: list[tuple[str, int, int]] = []

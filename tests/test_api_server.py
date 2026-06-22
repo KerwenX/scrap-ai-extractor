@@ -94,8 +94,9 @@ def test_api_server_health_and_template_management_responses():
                 payload = json.loads(response.read().decode("utf-8"))
                 assert any(item["candidate_id"] == candidate.candidate_id for item in payload["candidates"])
                 listed_candidate = next(item for item in payload["candidates"] if item["candidate_id"] == candidate.candidate_id)
-                assert listed_candidate["promotion_check"]["promotable"] is False
-                assert listed_candidate["promotion_check"]["existing_template_id"] == manifest.template_id
+                assert listed_candidate["promotion_check"]["promotable"] is True
+                assert listed_candidate["promotion_check"]["action"] == "create"
+                assert listed_candidate["promotion_check"]["existing_template_id"] is None
 
             promote_body = json.dumps(
                 {

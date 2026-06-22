@@ -35,3 +35,24 @@ def test_classifier_detects_qa_detail_page():
     assert result.site_id == "dayi.org.cn"
     assert result.scenario == "qa_detail"
     assert result.page_type == "qa_page"
+
+
+def test_classifier_does_not_infer_site_from_html_urls():
+    html = """
+    <html>
+      <head><title>Paper Detail</title></head>
+      <body>
+        <div>http://www.w3.org/2000/svg</div>
+      </body>
+    </html>
+    """
+    classifier = PageClassifier()
+    result = classifier.classify(
+        ExtractionRequest(
+            url="",
+            raw_html=html,
+            user_prompt="提取论文信息",
+        ),
+        build_soup(html),
+    )
+    assert result.site_id == "unknown"

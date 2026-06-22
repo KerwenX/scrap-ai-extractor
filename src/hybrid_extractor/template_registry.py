@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
@@ -116,12 +117,28 @@ class TemplateRegistry:
         best_score = 0.0
         best_diagnostics: dict[str, float] | None = None
 
+        classification_site_family = self._site_family(classification.site_id)
+        request_url_hash = self.template_service.build_url_pattern_hash_for_url(request.url) if request.url else ""
+        should_filter_by_site = bool(
+            classification.site_id
+            and classification.site_id != "unknown"
+        )
+
+        same_site_manifests = []
         for manifest in manifests:
             if not manifest.active or manifest.lifecycle_status != "active":
                 continue
-            if manifest.site_id != classification.site_id:
+            if should_filter_by_site and not self._site_matches(
+                manifest.site_id,
+                classification.site_id,
+                classification_site_family,
+            ):
                 continue
+            same_site_manifests.append(manifest)
 
+        prioritized_manifests = self._prioritize_by_url_pattern(same_site_manifests, request_url_hash)
+
+        for manifest in prioritized_manifests:
             diagnostics = self._score_manifest(
                 manifest,
                 request,
@@ -157,6 +174,8 @@ class TemplateRegistry:
             fingerprint_score = compare_fingerprints(fingerprint, manifest.fingerprint)
 
         classification_affinity = self._classification_affinity(manifest, classification)
+        site_affinity = self._site_affinity(manifest.site_id, classification.site_id)
+        url_pattern_affinity = self._url_pattern_affinity(manifest, request.url)
 
         if manifest.extraction_plan is None:
             if manifest.scenario != classification.scenario:
@@ -166,6 +185,8 @@ class TemplateRegistry:
                     "selector_hit_rate": 0.0,
                     "required_hit_rate": 0.0,
                     "classification_affinity": classification_affinity,
+                    "site_affinity": site_affinity,
+                    "url_pattern_affinity": url_pattern_affinity,
                 }
             if fingerprint_score < 0.8:
                 return {
@@ -174,13 +195,23 @@ class TemplateRegistry:
                     "selector_hit_rate": 0.0,
                     "required_hit_rate": 0.0,
                     "classification_affinity": classification_affinity,
+                    "site_affinity": site_affinity,
+                    "url_pattern_affinity": url_pattern_affinity,
                 }
             return {
-                "match_score": round(0.75 * fingerprint_score + 0.25 * classification_affinity, 4),
+                "match_score": round(
+                    0.65 * fingerprint_score
+                    + 0.20 * classification_affinity
+                    + 0.10 * site_affinity
+                    + 0.05 * url_pattern_affinity,
+                    4,
+                ),
                 "fingerprint_score": round(fingerprint_score, 4),
                 "selector_hit_rate": 0.0,
                 "required_hit_rate": 0.0,
                 "classification_affinity": round(classification_affinity, 4),
+                "site_affinity": round(site_affinity, 4),
+                "url_pattern_affinity": round(url_pattern_affinity, 4),
             }
 
         parser = GenericRuleTemplateParser(manifest)
@@ -194,17 +225,23 @@ class TemplateRegistry:
         required_hit_rate = validation.coverage
 
         score = (
-            0.5 * required_hit_rate
-            + 0.25 * selector_hit_rate
+            0.42 * required_hit_rate
+            + 0.22 * selector_hit_rate
             + 0.15 * fingerprint_score
-            + 0.10 * classification_affinity
+            + 0.11 * classification_affinity
+            + 0.07 * site_affinity
+            + 0.03 * url_pattern_affinity
         )
         if selector_hit_rate >= 0.85 and required_hit_rate >= 0.85:
             score += 0.08
         elif validation.passed and selector_hit_rate >= 0.6:
             score += 0.04
 
-        if not validation.passed and selector_hit_rate < 0.5:
+        if manifest.fingerprint is not None and classification_affinity < 0.3 and fingerprint_score < 0.3:
+            score = 0.0
+        elif manifest.fingerprint is None and classification_affinity < 0.3 and selector_hit_rate < 0.9:
+            score = 0.0
+        elif not validation.passed and selector_hit_rate < 0.5:
             score = 0.0
         elif selector_hit_rate < 0.35:
             score = 0.0
@@ -215,6 +252,8 @@ class TemplateRegistry:
             "selector_hit_rate": round(selector_hit_rate, 4),
             "required_hit_rate": round(required_hit_rate, 4),
             "classification_affinity": round(classification_affinity, 4),
+            "site_affinity": round(site_affinity, 4),
+            "url_pattern_affinity": round(url_pattern_affinity, 4),
         }
 
     def _selector_hit_rate(self, data: dict, manifest) -> float:
@@ -250,3 +289,58 @@ class TemplateRegistry:
         if isinstance(value, (list, tuple, dict, set)):
             return len(value) > 0
         return True
+
+    def _site_matches(
+        self,
+        manifest_site_id: str,
+        request_site_id: str,
+        request_site_family: str = "",
+    ) -> bool:
+        if manifest_site_id == request_site_id:
+            return True
+        if not manifest_site_id or not request_site_id:
+            return False
+        return self._site_family(manifest_site_id) == (request_site_family or self._site_family(request_site_id))
+
+    def _site_affinity(self, manifest_site_id: str, request_site_id: str) -> float:
+        if manifest_site_id == request_site_id:
+            return 1.0
+        if not manifest_site_id or not request_site_id:
+            return 0.0
+        if self._site_family(manifest_site_id) == self._site_family(request_site_id):
+            return 0.85
+        return 0.0
+
+    def _site_family(self, site_id: str) -> str:
+        site_id = (site_id or "").strip().lower()
+        if not site_id or site_id == "unknown":
+            return ""
+
+        host = urlparse(f"https://{site_id}").netloc or site_id
+        if host.startswith("www."):
+            host = host[4:]
+
+        parts = [part for part in host.split(".") if part]
+        if len(parts) <= 2:
+            return host
+        if len(parts[-1]) == 2 and len(parts[-2]) <= 3:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:])
+
+    def _prioritize_by_url_pattern(self, manifests, request_url_hash: str):
+        if not request_url_hash:
+            return list(manifests)
+
+        exact = [manifest for manifest in manifests if manifest.url_pattern_hash == request_url_hash]
+        if exact:
+            others = [manifest for manifest in manifests if manifest.url_pattern_hash != request_url_hash]
+            return exact + others
+        return list(manifests)
+
+    def _url_pattern_affinity(self, manifest, request_url: str) -> float:
+        if not request_url or not manifest.url_pattern_hash:
+            return 0.0
+        request_hash = self.template_service.build_url_pattern_hash_for_url(request_url)
+        if not request_hash:
+            return 0.0
+        return 1.0 if manifest.url_pattern_hash == request_hash else 0.0

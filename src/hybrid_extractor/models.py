@@ -53,7 +53,17 @@ class PostProcessStep(BaseModel):
 
 
 class FieldSelectorRule(BaseModel):
-    kind: Literal["css", "id", "meta", "text_pattern", "section_tab", "label_value", "code"]
+    kind: Literal[
+        "css",
+        "id",
+        "meta",
+        "text_pattern",
+        "section_tab",
+        "label_value",
+        "all_label_values",
+        "all_sections",
+        "code",
+    ]
     value: str
     attr: str = "text"
     many: bool = False
@@ -64,6 +74,7 @@ class FieldRule(BaseModel):
     selectors: List[FieldSelectorRule] = Field(default_factory=list)
     postprocess: List[PostProcessStep] = Field(default_factory=list)
     fallback_value: Any = None
+    merge_output: bool = False
 
 
 class ExtractionPlan(BaseModel):
@@ -136,6 +147,8 @@ class TemplateManifest(BaseModel):
     scenario: str
     version: str = "v1"
     template_key: str = ""
+    url_pattern: str = ""
+    url_pattern_hash: str = ""
     lifecycle_status: Literal["draft", "active", "deprecated", "archived"] = "active"
     active: bool = True
     fingerprint: Optional[PageFingerprint] = None
@@ -154,6 +167,7 @@ class TemplateCandidate(BaseModel):
     scenario: str
     user_prompt: str
     source_url: str = ""
+    matched_template_id: Optional[str] = None
     fingerprint: PageFingerprint
     extracted_fields: List[str] = Field(default_factory=list)
     sample_data: Dict[str, Any] = Field(default_factory=dict)

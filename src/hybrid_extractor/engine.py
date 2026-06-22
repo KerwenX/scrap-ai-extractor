@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Iterable, Optional
+from time import perf_counter
 
 from .classification import PageClassifier
 from .extractors import BaseFallbackExtractor, ScrapeGraphFallbackExtractor
@@ -47,21 +48,33 @@ class HybridExtractionEngine:
     def extract(self, request: ExtractionRequest) -> ExtractionResponse:
         logger_extra = {"request_id": request.request_id}
         self.logger.info("Starting extraction", extra=logger_extra)
-
-        if request.run_mode == "template_only" and not request.url.strip():
-            raise ValueError("Template-only extraction requires a non-empty url.")
+        phase_start = perf_counter()
+        timings_ms: dict[str, float] = {}
 
         cleaned_html = clean_html(request.raw_html)
+        timings_ms["clean_html"] = round((perf_counter() - phase_start) * 1000, 2)
+        phase_start = perf_counter()
         request = request.model_copy(update={"raw_html": cleaned_html})
         soup = build_soup(cleaned_html)
+        timings_ms["build_soup"] = round((perf_counter() - phase_start) * 1000, 2)
+        phase_start = perf_counter()
         title = extract_page_title(soup)
+        timings_ms["extract_title"] = round((perf_counter() - phase_start) * 1000, 2)
+        phase_start = perf_counter()
         intent = parse_intent(request.user_prompt)
+        timings_ms["parse_intent"] = round((perf_counter() - phase_start) * 1000, 2)
+        phase_start = perf_counter()
         classification = self.classifier.classify(request, soup)
+        timings_ms["classify_page"] = round((perf_counter() - phase_start) * 1000, 2)
+        phase_start = perf_counter()
         fingerprint = build_fingerprint(soup)
+        timings_ms["build_fingerprint"] = round((perf_counter() - phase_start) * 1000, 2)
+        phase_start = perf_counter()
 
         match, parser = self.registry.match(
             request, soup, title, classification, fingerprint=fingerprint
         )
+        timings_ms["match_template"] = round((perf_counter() - phase_start) * 1000, 2)
         debug_trace = {
             "page_title": title,
             "run_mode": request.run_mode,
@@ -70,6 +83,7 @@ class HybridExtractionEngine:
             "template_match": match.model_dump() if match else None,
             "intent": intent.model_dump(),
             "prompt_version": PROMPT_VERSION,
+            "timings_ms": timings_ms,
         }
 
         required_fields = self._required_fields(match)
@@ -188,7 +202,9 @@ class HybridExtractionEngine:
                 },
             )
 
+        phase_start = perf_counter()
         llm_result = self.fallback_extractor.extract(request, intent)
+        debug_trace["timings_ms"]["llm_fallback"] = round((perf_counter() - phase_start) * 1000, 2)
         candidate_seed_data = self._prepare_candidate_seed_data(llm_result.data)
         normalized_llm_data = candidate_seed_data if candidate_seed_data else llm_result.data
         llm_validation = validate_data(normalized_llm_data, required_fields)
@@ -207,6 +223,7 @@ class HybridExtractionEngine:
                 scenario=classification.scenario,
                 user_prompt=request.user_prompt,
                 source_url=request.url,
+                matched_template_id=match.template_id if match else None,
                 fingerprint=fingerprint,
                 extracted_fields=sorted(candidate_seed_data.keys()),
                 sample_data=dict(list(candidate_seed_data.items())[:8]),
@@ -343,6 +360,10 @@ class HybridExtractionEngine:
             page_cues.append("page has tabbed sections")
         if len(soup.find_all(["h2", "h3"])) >= 2:
             page_cues.append("page has repeated section headings")
+        if soup.select(".item-container .item-title-container"):
+            page_cues.append("page has repeated label-value containers")
+        if soup.select(".public-container"):
+            page_cues.append("page has repeated titled content sections")
 
         field_analyses: list[TemplateFieldAnalysis] = []
         fallback_fields: list[str] = []
@@ -386,6 +407,10 @@ class HybridExtractionEngine:
             return None
         field_rules: list[FieldRule] = []
 
+        structural_rules = self._build_structural_field_rules(soup)
+        if structural_rules:
+            field_rules.extend(structural_rules)
+
         for field_name, value in data.items():
             selectors = self._infer_selector_candidates(soup, field_name, value)
             if not selectors:
@@ -401,12 +426,55 @@ class HybridExtractionEngine:
                 for item in analysis.field_analyses
                 if item.deterministic_feasibility in {"high", "medium"}
             }
-            field_rules = [rule for rule in field_rules if rule.field_name in supported_fields]
+            field_rules = [
+                rule
+                for rule in field_rules
+                if rule.field_name in supported_fields
+                or rule.merge_output
+                or any(
+                    selector.kind in {"all_label_values", "all_sections"}
+                    for selector in rule.selectors
+                )
+                or rule.field_name == "标题"
+            ]
 
         if not field_rules:
             return None
 
         return ExtractionPlan(mode="declarative", fields=field_rules)
+
+    def _build_structural_field_rules(self, soup) -> list[FieldRule]:
+        rules: list[FieldRule] = []
+
+        h1 = soup.find("h1")
+        if h1 and normalize_text(h1.get_text(" ", strip=True)):
+            rules.append(
+                FieldRule(
+                    field_name="标题",
+                    selectors=[FieldSelectorRule(kind="css", value="h1")],
+                    postprocess=[PostProcessStep(op="strip")],
+                )
+            )
+
+        if soup.select(".item-container .item-title-container"):
+            rules.append(
+                FieldRule(
+                    field_name="结构化字段",
+                    selectors=[FieldSelectorRule(kind="all_label_values", value="*")],
+                    merge_output=True,
+                )
+            )
+
+        if soup.select(".public-container"):
+            rules.append(
+                FieldRule(
+                    field_name="详情段落",
+                    selectors=[FieldSelectorRule(kind="all_sections", value="*")],
+                    merge_output=True,
+                )
+            )
+
+        return rules
 
     def _prepare_candidate_seed_data(self, data: dict) -> dict:
         if not isinstance(data, dict):

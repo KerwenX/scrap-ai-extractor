@@ -33,6 +33,7 @@ def _candidate_with_fields(candidate_id: str, dom_signature: str, field_names: l
         scenario="detail_page",
         user_prompt="提取论文信息",
         source_url="https://example.com/paper/1",
+        matched_template_id=None,
         fingerprint=PageFingerprint(
             dom_signature=dom_signature,
             headings=["Paper"],
@@ -71,6 +72,7 @@ def test_same_fingerprint_candidate_is_upgradeable_when_plan_is_richer(tmp_path)
         required_fields=["title"],
     )
     assert original is not None
+    strong_candidate = strong_candidate.model_copy(update={"matched_template_id": original.template_id})
     service.persist_candidate(strong_candidate)
 
     check = service.inspect_candidate_promotability(strong_candidate)

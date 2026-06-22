@@ -1,0 +1,261 @@
+{
+  "template_id": "ajcass_com_detail_page_detail_page_c5d7b04b_v3",
+  "parser_key": "generic:rule",
+  "site_id": "erj.ajcass.com",
+  "site_name": "erj.ajcass.com",
+  "page_type": "detail_page",
+  "scenario": "detail_page",
+  "version": "v3",
+  "template_key": "ajcass_com_detail_page_detail_page_c5d7b04b",
+  "url_pattern": "ajcass.com|/|",
+  "url_pattern_hash": "c5d7b04b",
+  "lifecycle_status": "active",
+  "active": true,
+  "fingerprint": {
+    "dom_signature": "4a6b30b0aa116640",
+    "headings": [],
+    "key_ids": [
+      "app",
+      "immersive-translate-browser-popup"
+    ],
+    "key_classes": [
+      "banner",
+      "btm",
+      "btn",
+      "btn1",
+      "code",
+      "content",
+      "content-left",
+      "content-right",
+      "contribute",
+      "contribute-btn",
+      "contribute-title",
+      "el-image",
+      "el-image__inner",
+      "el-image__preview",
+      "footer",
+      "honor",
+      "honor-title",
+      "link",
+      "link-list",
+      "list-title",
+      "message",
+      "nav",
+      "time",
+      "tip",
+      "title",
+      "v-s-s",
+      "v-s-s_item"
+    ]
+  },
+  "required_fields": [
+    "标题",
+    "作者",
+    "摘要"
+  ],
+  "extraction_plan": {
+    "mode": "declarative",
+    "fields": [
+      {
+        "field_name": "标题",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .title",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "时间信息",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .time",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "正文",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .message",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "作者",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .message",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "regex_extract",
+            "args": {
+              "pattern": "【作者】\\s*(.*?)\\s*【内容提要】",
+              "group": 1
+            }
+          },
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "摘要",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .message",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "regex_extract",
+            "args": {
+              "pattern": "【内容提要】\\s*(.*?)\\s*【关键词】",
+              "group": 1
+            }
+          },
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "关键词",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .message",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "regex_extract",
+            "args": {
+              "pattern": "【关键词】\\s*(.*?)\\s*(?:下载全文|扩展资料|$)",
+              "group": 1
+            }
+          },
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "发表时间",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .time",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "regex_extract",
+            "args": {
+              "pattern": "时间：\\s*([^\\s]+)",
+              "group": 1
+            }
+          },
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "稿件来源",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": ".content-right .time",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "regex_extract",
+            "args": {
+              "pattern": "稿件来源：\\s*(.*)$",
+              "group": 1
+            }
+          },
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "期刊",
+        "selectors": [
+          {
+            "kind": "css",
+            "value": "head title",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip"
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      }
+    ],
+    "code_entrypoint": ""
+  },
+  "notes": "Stabilized declarative template for AJCASS paper detail pages using container selectors instead of page-specific breadcrumb labels.",
+  "source_candidate_id": "1e18d1c9-d315-44e6-9914-0446fb9075af"
+}

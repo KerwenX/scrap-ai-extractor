@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
@@ -12,9 +11,8 @@ from .preprocessing import extract_page_title
 class PageClassifier:
     def classify(self, request: ExtractionRequest, soup: BeautifulSoup) -> PageClassification:
         title = extract_page_title(soup)
-        html = request.raw_html
         url = request.url or ""
-        host = self._extract_host(url, html)
+        host = self._extract_host(url)
         signals: list[str] = []
 
         if host:
@@ -76,12 +74,9 @@ class PageClassifier:
             signals=signals,
         )
 
-    def _extract_host(self, url: str, html: str) -> str:
+    def _extract_host(self, url: str) -> str:
         parsed = urlparse(url)
         host = parsed.netloc.lower().strip()
-        if not host:
-            match = re.search(r"https?://([^/\s\"'<>]+)", html, re.IGNORECASE)
-            host = match.group(1).lower().strip() if match else ""
         if host.startswith("www."):
             host = host[4:]
         return host
