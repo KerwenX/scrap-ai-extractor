@@ -177,6 +177,7 @@
   - 仓库内置模板
 - `data/template_store/`
   - 运行期正式模板
+  - 建议按站点分目录组织
 - `data/template_candidates/`
   - 运行期候选模板
 

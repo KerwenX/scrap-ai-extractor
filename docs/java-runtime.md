@@ -96,6 +96,18 @@ Path templateDir = Paths.get("D:/app/template_store");
 TemplateExtractionApi api = TemplateExtractionApi.fromDirectory(templateDir);
 ```
 
+正式模板现在推荐按站点分目录，例如：
+
+```text
+D:/app/template_store/
+  m_dayi_org_cn/
+    dayi_org_cn_article_detail_article_page_f83933ac_v1.json
+  erj_ajcass_com/
+    ajcass_com_detail_page_detail_page_c5d7b04b_v3.json
+```
+
+Java 运行时会递归扫描 `template_store/` 下的子目录，不要求所有模板平铺在同一层。
+
 优点：
 
 - 模板可热更新

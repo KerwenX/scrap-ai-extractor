@@ -40,10 +40,11 @@ public class TemplateManifestRepository {
         if (!Files.exists(directory)) {
             return manifests;
         }
-        try (java.util.stream.Stream<Path> stream = Files.list(directory)) {
+        try (java.util.stream.Stream<Path> stream = Files.walk(directory)) {
             List<Path> files = stream
+                    .filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().endsWith(".json"))
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .sorted(Comparator.comparing(path -> directory.relativize(path).toString()))
                     .collect(Collectors.toList());
             for (Path path : files) {
                 TemplateContract.TemplateManifest manifest = loadManifest(path);

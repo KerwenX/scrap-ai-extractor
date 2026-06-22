@@ -122,6 +122,7 @@ local_medical_html_extraction.py
 当前约定是：
 
 - 正式模板以 `data/template_store/` 为主
+- 正式模板按站点分目录存储，例如 `data/template_store/m_dayi_org_cn/...`
 - 以后同步 GitHub 时，本地正式模板会一并同步
 - 废弃版本如果仍保留在本地模板仓中，也会作为历史模板一并保留，方便回溯
 

@@ -586,3 +586,67 @@ def test_registry_rejects_no_fingerprint_low_affinity_partial_false_positive(tmp
 
     assert match is None
     assert parser is None
+
+
+def test_manifest_is_stored_under_site_subdirectory_and_can_be_loaded(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    manifest = TemplateManifest(
+        template_id="doctor_family_v1",
+        parser_key="generic:rule",
+        site_id="m.dayi.org.cn",
+        site_name="m.dayi.org.cn",
+        page_type="article_page",
+        scenario="article_detail",
+        version="v1",
+        template_key="doctor_family",
+        lifecycle_status="active",
+        active=True,
+        required_fields=["标题"],
+        extraction_plan=ExtractionPlan(
+            fields=[FieldRule(field_name="标题", selectors=[FieldSelectorRule(kind="css", value="h1")])]
+        ),
+    )
+
+    path = service.upsert_manifest(manifest)
+
+    assert path == tmp_path / "template_store" / "m_dayi_org_cn" / "doctor_family_v1.json"
+    loaded = service.get_manifest("doctor_family_v1")
+    assert loaded is not None
+    assert loaded.site_id == "m.dayi.org.cn"
+
+
+def test_delete_manifest_supports_nested_site_directory(tmp_path):
+    service = TemplateService(
+        template_dir=tmp_path / "templates",
+        template_store_dir=tmp_path / "template_store",
+        template_candidate_dir=tmp_path / "template_candidates",
+    )
+    manifest = TemplateManifest(
+        template_id="paper_family_v1",
+        parser_key="generic:rule",
+        site_id="erj.ajcass.com",
+        site_name="erj.ajcass.com",
+        page_type="detail_page",
+        scenario="detail_page",
+        version="v1",
+        template_key="paper_family",
+        lifecycle_status="active",
+        active=True,
+        required_fields=["标题"],
+        extraction_plan=ExtractionPlan(
+            fields=[FieldRule(field_name="标题", selectors=[FieldSelectorRule(kind="css", value="h1")])]
+        ),
+    )
+
+    path = service.upsert_manifest(manifest)
+    assert path.exists()
+
+    deleted = service.delete_manifest("paper_family_v1")
+
+    assert deleted is True
+    assert not path.exists()
+    assert service.get_manifest("paper_family_v1") is None

@@ -46,7 +46,7 @@ class TemplateService:
         for directory in directories:
             if not directory.exists():
                 continue
-            for path in sorted(directory.glob("*.json")):
+            for path in self._iter_json_files(directory):
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if "parser_key" not in data:
                     continue
@@ -161,9 +161,10 @@ class TemplateService:
         }
 
     def delete_manifest(self, template_id: str) -> bool:
-        path = self.template_store_dir / f"{template_id}.json"
-        if path.exists():
+        path = self._find_manifest_path(template_id)
+        if path is not None and path.exists():
             path.unlink()
+            self._cleanup_empty_parent_dirs(path.parent, self.template_store_dir)
             self._invalidate_manifest_cache()
             return True
         return False
@@ -185,7 +186,8 @@ class TemplateService:
 
     def upsert_manifest(self, manifest: TemplateManifest) -> Path:
         manifest = self._normalize_manifest(manifest)
-        path = self.template_store_dir / f"{manifest.template_id}.json"
+        path = self._manifest_storage_path(manifest)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             manifest.model_dump_json(indent=2),
             encoding="utf-8",
@@ -584,10 +586,51 @@ class TemplateService:
         for directory in directories:
             if not directory.exists():
                 continue
-            for path in sorted(directory.glob("*.json")):
+            for path in self._iter_json_files(directory):
                 stat = path.stat()
                 signature.append((str(path), stat.st_mtime_ns, stat.st_size))
         return tuple(signature)
+
+    def _manifest_storage_path(self, manifest: TemplateManifest) -> Path:
+        site_folder = self._storage_site_folder(manifest.site_id)
+        return self.template_store_dir / site_folder / f"{manifest.template_id}.json"
+
+    def _find_manifest_path(self, template_id: str) -> Path | None:
+        direct = self.template_store_dir / f"{template_id}.json"
+        if direct.exists():
+            return direct
+        for path in self._iter_json_files(self.template_store_dir):
+            if path.name == f"{template_id}.json":
+                return path
+        return None
+
+    def _iter_json_files(self, directory: Path) -> list[Path]:
+        return sorted(
+            (path for path in directory.rglob("*.json") if path.is_file()),
+            key=lambda path: str(path.relative_to(directory)).lower(),
+        )
+
+    def _storage_site_folder(self, site_id: str | None) -> str:
+        raw = (site_id or "").strip().lower()
+        if not raw:
+            return "unknown"
+        host = urlparse(f"https://{raw}").netloc or raw
+        host = host.replace(":", "_")
+        return self._slug(host)
+
+    def _cleanup_empty_parent_dirs(self, start_dir: Path, stop_dir: Path) -> None:
+        current = start_dir
+        stop_dir = stop_dir.resolve()
+        while current.exists():
+            try:
+                if current.resolve() == stop_dir:
+                    break
+            except FileNotFoundError:
+                break
+            if any(current.iterdir()):
+                break
+            current.rmdir()
+            current = current.parent
 
     def _invalidate_manifest_cache(self) -> None:
         self._manifest_cache = None
