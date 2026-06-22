@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class TemplateManifestRepository {
     private final ObjectMapper objectMapper;
@@ -71,8 +73,26 @@ public class TemplateManifestRepository {
             String siteId,
             String scenario
     ) {
+        return findBestActiveManifest(
+                manifests,
+                null,
+                fingerprint,
+                siteId,
+                scenario
+        );
+    }
+
+    public ManifestSelection findBestActiveManifest(
+            Collection<TemplateContract.TemplateManifest> manifests,
+            String url,
+            TemplateContract.PageFingerprint fingerprint,
+            String siteId,
+            String scenario
+    ) {
         TemplateContract.TemplateManifest bestManifest = null;
         double bestScore = 0.0d;
+        String requestUrlPatternHash = buildUrlPatternHash(url);
+        List<TemplateContract.TemplateManifest> scoped = new ArrayList<TemplateContract.TemplateManifest>();
 
         for (TemplateContract.TemplateManifest manifest : manifests) {
             TemplateContract.TemplateManifest normalized = normalizeManifest(manifest);
@@ -82,8 +102,16 @@ public class TemplateManifestRepository {
             if (!matchesScope(normalized, siteId, scenario)) {
                 continue;
             }
+            scoped.add(normalized);
+        }
 
+        List<TemplateContract.TemplateManifest> prioritized =
+                prioritizeByUrlPattern(scoped, requestUrlPatternHash);
+
+        for (TemplateContract.TemplateManifest normalized : prioritized) {
             double score = 0.0d;
+            double urlPatternAffinity = urlPatternAffinity(normalized, requestUrlPatternHash);
+            double siteAffinity = siteAffinity(normalized.siteId, siteId);
             if (normalized.fingerprint != null && fingerprint != null) {
                 score = compareFingerprints(fingerprint, normalized.fingerprint);
                 if (score < 0.8d) {
@@ -92,6 +120,8 @@ public class TemplateManifestRepository {
             } else if (normalized.extractionPlan != null) {
                 score = 0.81d;
             }
+
+            score += 0.05d * urlPatternAffinity + 0.03d * siteAffinity;
 
             if (score > bestScore) {
                 bestScore = score;
@@ -112,7 +142,8 @@ public class TemplateManifestRepository {
     ) {
         String resolvedSiteId = resolveSiteId(request);
         String resolvedScenario = request == null ? null : request.scenario;
-        return findBestActiveManifest(manifests, fingerprint, resolvedSiteId, resolvedScenario);
+        String url = request == null ? null : request.url;
+        return findBestActiveManifest(manifests, url, fingerprint, resolvedSiteId, resolvedScenario);
     }
 
     public TemplateContract.TemplateManifest normalizeManifest(TemplateContract.TemplateManifest manifest) {
@@ -123,6 +154,10 @@ public class TemplateManifestRepository {
             manifest.active = true;
         } else if ("deprecated".equals(manifest.lifecycleStatus) || "archived".equals(manifest.lifecycleStatus)) {
             manifest.active = false;
+        }
+        if ((manifest.urlPatternHash == null || manifest.urlPatternHash.trim().isEmpty())
+                && manifest.templateKey != null) {
+            manifest.urlPatternHash = inferUrlPatternHashFromTemplateKey(manifest.templateKey);
         }
         return manifest;
     }
@@ -237,7 +272,7 @@ public class TemplateManifestRepository {
             String scenario
     ) {
         if (siteId != null && !siteId.trim().isEmpty()) {
-            if (!stringEquals(manifest.siteId, siteId)) {
+            if (!siteMatches(manifest.siteId, siteId)) {
                 return false;
             }
         }
@@ -269,6 +304,128 @@ public class TemplateManifestRepository {
         } catch (IllegalArgumentException ignored) {
             return null;
         }
+    }
+
+    public String buildUrlPatternHash(String url) {
+        String normalized = normalizeUrlPattern(url);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        return sha256Hex(normalized).substring(0, 8);
+    }
+
+    public String normalizeUrlPattern(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(url.trim());
+            String host = uri.getHost();
+            if (host == null || host.trim().isEmpty()) {
+                return "";
+            }
+            host = host.toLowerCase(Locale.ROOT);
+            String path = uri.getPath() == null || uri.getPath().isEmpty() ? "/" : uri.getPath();
+            String[] segments = path.split("/");
+            List<String> normalizedSegments = new ArrayList<String>();
+            for (String segment : segments) {
+                if (segment == null || segment.isEmpty()) {
+                    continue;
+                }
+                if (segment.matches("\\d+")) {
+                    normalizedSegments.add("{int}");
+                } else if (segment.matches("[0-9a-fA-F]{8,}")) {
+                    normalizedSegments.add("{hex}");
+                } else {
+                    normalizedSegments.add(segment.toLowerCase(Locale.ROOT).replaceAll("\\d+", "{n}"));
+                }
+            }
+            String normalizedPath = "/" + join(normalizedSegments, "/");
+            return host + "|" + normalizedPath;
+        } catch (IllegalArgumentException ignored) {
+            return "";
+        }
+    }
+
+    private List<TemplateContract.TemplateManifest> prioritizeByUrlPattern(
+            List<TemplateContract.TemplateManifest> manifests,
+            String requestUrlPatternHash
+    ) {
+        if (requestUrlPatternHash == null || requestUrlPatternHash.isEmpty()) {
+            return manifests;
+        }
+        List<TemplateContract.TemplateManifest> exact = new ArrayList<TemplateContract.TemplateManifest>();
+        List<TemplateContract.TemplateManifest> others = new ArrayList<TemplateContract.TemplateManifest>();
+        for (TemplateContract.TemplateManifest manifest : manifests) {
+            if (requestUrlPatternHash.equals(manifest.urlPatternHash)) {
+                exact.add(manifest);
+            } else {
+                others.add(manifest);
+            }
+        }
+        exact.addAll(others);
+        return exact;
+    }
+
+    private double urlPatternAffinity(TemplateContract.TemplateManifest manifest, String requestUrlPatternHash) {
+        if (manifest == null || manifest.urlPatternHash == null || manifest.urlPatternHash.isEmpty()) {
+            return 0.0d;
+        }
+        if (requestUrlPatternHash == null || requestUrlPatternHash.isEmpty()) {
+            return 0.0d;
+        }
+        return requestUrlPatternHash.equals(manifest.urlPatternHash) ? 1.0d : 0.0d;
+    }
+
+    private static boolean siteMatches(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.equalsIgnoreCase(right)) {
+            return true;
+        }
+        return siteFamily(left).equals(siteFamily(right));
+    }
+
+    private static double siteAffinity(String left, String right) {
+        if (left == null || right == null) {
+            return 0.0d;
+        }
+        if (left.equalsIgnoreCase(right)) {
+            return 1.0d;
+        }
+        return siteFamily(left).equals(siteFamily(right)) ? 0.85d : 0.0d;
+    }
+
+    private static String siteFamily(String siteId) {
+        if (siteId == null || siteId.trim().isEmpty()) {
+            return "";
+        }
+        String host = siteId.trim().toLowerCase(Locale.ROOT);
+        if (host.startsWith("www.")) {
+            host = host.substring(4);
+        }
+        String[] parts = host.split("\\.");
+        if (parts.length <= 2) {
+            return host;
+        }
+        String last = parts[parts.length - 1];
+        String secondLast = parts[parts.length - 2];
+        if (last.length() == 2 && secondLast.length() <= 3 && parts.length >= 3) {
+            return parts[parts.length - 3] + "." + secondLast + "." + last;
+        }
+        return secondLast + "." + last;
+    }
+
+    private String inferUrlPatternHashFromTemplateKey(String templateKey) {
+        if (templateKey == null || templateKey.trim().isEmpty()) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("_([0-9a-f]{8})(?:_[0-9a-f]{12})?$").matcher(templateKey);
+        if (!matcher.find()) {
+            return "";
+        }
+        return matcher.group(1);
     }
 
     private static String sha256Hex(String value) {

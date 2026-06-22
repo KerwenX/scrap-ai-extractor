@@ -60,6 +60,9 @@ public class DeclarativeTemplateEngine {
 
             value = applyPostprocess(value, fieldRule);
             result.data.put(fieldRule.fieldName, value);
+            if (fieldRule.mergeOutput && value instanceof Map<?, ?>) {
+                mergeOutput(result.data, (Map<?, ?>) value);
+            }
             if (hasValue(value)) {
                 result.evidences.add(new TemplateContract.FieldEvidence(fieldRule.fieldName, source, ruleId));
             }
@@ -96,6 +99,12 @@ public class DeclarativeTemplateEngine {
                 return extractByTextPattern(document, selector.value);
             case "section_tab":
                 return buildSectionTabMap(document).get(selector.value);
+            case "label_value":
+                return extractLabelValue(document, selector.value, selector.many);
+            case "all_label_values":
+                return extractAllLabelValues(document);
+            case "all_sections":
+                return extractAllSections(document);
             case "code":
                 SelectorCodeHandler handler = codeHandlers.get(selector.value);
                 if (handler == null) {
@@ -156,6 +165,94 @@ public class DeclarativeTemplateEngine {
         return values.isEmpty() ? null : values.get(0);
     }
 
+    private Object extractLabelValue(Document document, String label, boolean many) {
+        String normalizedLabel = normalizeText(label);
+        if (normalizedLabel.isEmpty()) {
+            return null;
+        }
+
+        List<String> values = new ArrayList<String>();
+        Map<String, String> mappings = extractAllLabelValues(document);
+        for (Map.Entry<String, String> entry : mappings.entrySet()) {
+            if (normalizeText(entry.getKey()).replace(" ", "").equals(normalizedLabel.replace(" ", ""))) {
+                values.add(entry.getValue());
+            }
+        }
+
+        if (many) {
+            return values;
+        }
+        return values.isEmpty() ? null : values.get(0);
+    }
+
+    private Map<String, String> extractAllLabelValues(Document document) {
+        Map<String, String> result = new LinkedHashMap<String, String>();
+
+        for (Element container : document.select(".item-container")) {
+            Element titleNode = container.selectFirst(".item-title-container");
+            Element valueNode = container.selectFirst(".item-content");
+            if (titleNode == null || valueNode == null) {
+                continue;
+            }
+            String title = normalizeText(titleNode.text()).replace(" ", "");
+            String value = normalizeText(valueNode.text());
+            if (!title.isEmpty() && !value.isEmpty() && !result.containsKey(title)) {
+                result.put(title, value);
+            }
+        }
+
+        for (Element row : document.select("tr")) {
+            Elements cells = row.select("> th, > td");
+            if (cells.size() < 2) {
+                continue;
+            }
+            String label = normalizeText(cells.get(0).text()).replaceAll("[:：]+$", "");
+            String value = normalizeText(cells.get(1).text());
+            if (!label.isEmpty() && !value.isEmpty() && !result.containsKey(label)) {
+                result.put(label, value);
+            }
+        }
+
+        for (Element dl : document.select("dl")) {
+            Elements terms = dl.select("> dt");
+            Elements descriptions = dl.select("> dd");
+            int count = Math.min(terms.size(), descriptions.size());
+            for (int i = 0; i < count; i++) {
+                String label = normalizeText(terms.get(i).text()).replaceAll("[:：]+$", "");
+                String value = normalizeText(descriptions.get(i).text());
+                if (!label.isEmpty() && !value.isEmpty() && !result.containsKey(label)) {
+                    result.put(label, value);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private Map<String, String> extractAllSections(Document document) {
+        Map<String, String> result = new LinkedHashMap<String, String>();
+        for (Element container : document.select(".public-container")) {
+            String title = extractContainerTitle(container);
+            String content = extractContainerContent(container);
+            if (!title.isEmpty() && !content.isEmpty() && !result.containsKey(title)) {
+                result.put(title, content);
+            }
+        }
+
+        if (!result.isEmpty()) {
+            return result;
+        }
+
+        for (Element container : document.select("section, article, .section, .content-section")) {
+            String title = extractContainerTitle(container);
+            String content = extractContainerContent(container);
+            if (!title.isEmpty() && !content.isEmpty() && !result.containsKey(title)) {
+                result.put(title, content);
+            }
+        }
+        return result;
+    }
+
     private Object applyPostprocess(Object value, TemplateContract.FieldRule fieldRule) {
         Object current = value;
         if (fieldRule.postprocess == null) {
@@ -165,6 +262,17 @@ public class DeclarativeTemplateEngine {
             current = applyStep(current, step);
         }
         return current;
+    }
+
+    private String extractContainerTitle(Element node) {
+        Element titleNode = node.selectFirst("h2, h3, h4, .section-title, .title, .item-title, .title-line p, .title p");
+        return titleNode == null ? "" : normalizeText(titleNode.text());
+    }
+
+    private String extractContainerContent(Element node) {
+        Element contentNode = node.selectFirst(".item-content, .content, .section-content");
+        Element target = contentNode == null ? node : contentNode;
+        return normalizeText(target.text());
     }
 
     private Object applyStep(Object value, TemplateContract.PostProcessStep step) {
@@ -379,6 +487,20 @@ public class DeclarativeTemplateEngine {
             builder.append(parts.get(i));
         }
         return builder.toString();
+    }
+
+    private void mergeOutput(Map<String, Object> data, Map<?, ?> mapping) {
+        for (Map.Entry<?, ?> entry : mapping.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            String key = String.valueOf(entry.getKey());
+            Object value = entry.getValue();
+            if (key.trim().isEmpty() || !hasValue(value) || hasValue(data.get(key))) {
+                continue;
+            }
+            data.put(key, value);
+        }
     }
 
     public static boolean hasValue(Object value) {

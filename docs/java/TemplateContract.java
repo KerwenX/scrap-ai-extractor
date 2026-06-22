@@ -31,6 +31,7 @@ public final class TemplateContract {
         public List<FieldSelectorRule> selectors = new ArrayList<FieldSelectorRule>();
         public List<PostProcessStep> postprocess = new ArrayList<PostProcessStep>();
         public Object fallbackValue;
+        public boolean mergeOutput = false;
     }
 
     public static class ExtractionPlan {
@@ -48,6 +49,8 @@ public final class TemplateContract {
         public String scenario;
         public String version = "v1";
         public String templateKey = "";
+        public String urlPattern = "";
+        public String urlPatternHash = "";
         public String lifecycleStatus = "active";
         public boolean active = true;
         public PageFingerprint fingerprint;

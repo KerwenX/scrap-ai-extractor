@@ -1,389 +1,309 @@
-# Java 模板执行组件接入说明
+# Java 模板运行时说明
+
+## 1. 目标
 
 这套 Java 代码只负责一件事：
 
-- 读取本项目生成好的正式模板 JSON
+- 读取 Python 主项目已经生成好的正式模板 JSON
 - 基于模板执行 HTML 结构化抽取
 
 它不包含：
 
 - LLM 调用
 - 模板生成
-- 候选模板固化
+- 候选模板晋升
 
-也就是说，模板的生产仍然在当前 Python 项目里完成，而 Java 侧只负责“消费模板并执行”。
+也就是说：
 
-## 1. 适用场景
+1. Python 项目负责首轮抽取、模板固化、模板升级
+2. Java 项目负责消费正式模板、匹配模板、执行抽取
 
-适合下面这类使用方式：
+## 2. 当前同步到 Java 的关键策略
 
-1. Python 项目负责首次解析、LLM 回退、模板沉淀
-2. 运行中产出正式模板 JSON
-3. Java 项目直接复制本目录下的关键类
-4. Java 项目加载模板 JSON + HTML，执行确定性解析
+Java 运行时当前应与 Python 主逻辑保持一致，尤其是这几条：
 
-## 2. 代码文件
+### 2.1 不从 HTML 推断 URL
 
-建议复制这些文件到你的 Java 工程中：
+Java 运行时不应该从 HTML 中扫描 `http(s)://...` 来反推站点。
 
-- [TemplateContract.java](G:\code\Extractor\scrap-ai-extractor\docs\java\TemplateContract.java)
-- [DeclarativeTemplateEngine.java](G:\code\Extractor\scrap-ai-extractor\docs\java\DeclarativeTemplateEngine.java)
-- [TemplateManifestRepository.java](G:\code\Extractor\scrap-ai-extractor\docs\java\TemplateManifestRepository.java)
-- [HtmlTemplateExtractor.java](G:\code\Extractor\scrap-ai-extractor\docs\java\HtmlTemplateExtractor.java)
-- [CachedTemplateExtractionService.java](G:\code\Extractor\scrap-ai-extractor\docs\java\CachedTemplateExtractionService.java)
+原因与 Python 一样：
 
-这些文件默认不带 package，方便你直接复制。接入正式工程后，你可以自行补上 package。
+- HTML 里的 URL 可能是脚本、SVG、第三方资源
+- 会把页面错误归类到完全无关的站点
 
-推荐的职责理解如下：
+Java 端应只信任真实输入的 `url`。
 
-- `TemplateContract`
-  - 模板 JSON 对应的数据契约
-  - 包含 `TemplateManifest`、`ExtractionPlan`、`FieldRule`、`ExtractionResult` 等对象
-- `DeclarativeTemplateEngine`
-  - 负责执行声明式 DSL
-  - 负责 selector 解析和 postprocess 算子执行
-- `TemplateManifestRepository`
-  - 负责模板加载、模板选择、页面指纹生成、指纹相似度比较
-- `HtmlTemplateExtractor`
-  - 面向业务调用方的主入口
-  - 屏蔽底层执行细节，直接提供“按模板执行”“按模板 ID 执行”“输入 url + html 自动匹配模板执行”等接口
-- `CachedTemplateExtractionService`
-  - 面向生产使用的模板缓存服务
-  - 负责把模板目录加载到内存，并在后续请求中持续复用
+### 2.2 无 URL 时允许全库模板匹配
 
-## 3. 依赖
+当 `url` 缺失时：
 
-建议最少引入两个依赖：
+- 不要直接失败
+- 不要猜站点
+- 而是直接对正式模板做运行时评分匹配
+
+### 2.3 只有命中过旧模板，才允许升级旧模板
+
+Java 运行时本身不负责升级模板，但它消费的模板体系必须基于这个规则：
+
+- 命中过旧模板后 fallback 成功，才允许升级旧模板
+- 没命中过旧模板，不应该把新页面算作旧模板的新版本
+
+## 3. 需要复制到 Java 项目的文件
+
+如果你要在别的 Maven / Spring Boot 项目中直接消费模板，建议复制这些文件：
+
+- [TemplateContract.java](./java/TemplateContract.java)
+- [DeclarativeTemplateEngine.java](./java/DeclarativeTemplateEngine.java)
+- [TemplateManifestRepository.java](./java/TemplateManifestRepository.java)
+- [HtmlTemplateExtractor.java](./java/HtmlTemplateExtractor.java)
+- [CachedTemplateExtractionService.java](./java/CachedTemplateExtractionService.java)
+- [TemplateExtractionApi.java](./java/TemplateExtractionApi.java)
+
+## 4. Maven 依赖
 
 ```xml
 <dependency>
   <groupId>org.jsoup</groupId>
   <artifactId>jsoup</artifactId>
-  <version>1.18.1</version>
+  <version>1.17.2</version>
 </dependency>
 
 <dependency>
   <groupId>com.fasterxml.jackson.core</groupId>
   <artifactId>jackson-databind</artifactId>
-  <version>2.18.2</version>
+  <version>2.17.2</version>
 </dependency>
 ```
 
-建议编译参数：
+Java 版本按 1.8：
 
 ```xml
-<maven.compiler.source>1.8</maven.compiler.source>
-<maven.compiler.target>1.8</maven.compiler.target>
+<properties>
+  <maven.compiler.source>1.8</maven.compiler.source>
+  <maven.compiler.target>1.8</maven.compiler.target>
+</properties>
 ```
 
-## 4. 主要能力
+## 5. 模板目录建议
 
-Java 版运行时当前支持：
+### 5.1 生产环境推荐：外部目录
 
-- 按模板 JSON 执行字段抽取
-- 直接输入 `url + html` 执行模板匹配与抽取
-- 支持模板目录加载后长期驻留内存
-- 支持手动刷新模板缓存
-- 支持 `css` / `id` / `meta` / `text_pattern` / `section_tab` / `code`
-- 支持模板后处理算子
-- 支持按 `template_id` 直接执行
-- 支持按 `site_id + scenario + fingerprint` 自动挑选最佳模板
-- 支持注册自定义 `code handler`
+推荐直接传入一个外部模板目录：
 
-## 5. 快速接入步骤
+```java
+Path templateDir = Paths.get("D:/app/template_store");
+TemplateExtractionApi api = TemplateExtractionApi.fromDirectory(templateDir);
+```
 
-建议按下面的顺序接入：
+优点：
 
-1. 复制 Java 文件到你的项目里
-2. 给这些类补上你自己的 package
-3. 引入 `jsoup` 和 `jackson-databind`
-4. 把 Python 项目导出的正式模板 JSON 放到你的资源目录或本地文件目录
-5. 在业务代码里创建 `HtmlTemplateExtractor`
-6. 选择一种调用模式执行抽取
+- 模板可热更新
+- 不需要重新打包 jar
+- Python 侧生成新模板后，直接同步目录即可
 
-最小接入通常只需要下面三步：
+### 5.2 开发环境：resources
 
-1. 准备 URL
-2. 准备 HTML 字符串
-3. 调用 `CachedTemplateExtractionService.extract(url, html)` 或 `extract(request)`
+开发期可以把模板放在：
 
-## 6. 主入口使用说明
+```text
+src/main/resources/template_store/
+```
 
-### 6.1 `HtmlTemplateExtractor`
+本地直接运行时可这样读：
 
-这是推荐直接给业务层使用的入口类。
+```java
+Path templateDir = Paths.get("src/main/resources/template_store");
+TemplateExtractionApi api = TemplateExtractionApi.fromDirectory(templateDir);
+```
 
-它提供几类常用方法：
+但生产环境不建议长期依赖这种路径。
 
-- `extract(String url, String html, Collection<TemplateManifest> manifests)`
-  - 最直接的业务入口
-  - 你只需要提供 URL、HTML 和模板集合
-- `extract(TemplateContract.ExtractionRequest request, Collection<TemplateManifest> manifests)`
-  - 更推荐的入口
-  - 便于后续扩展 `siteId`、`scenario`、`preferredTemplateId`
+## 6. `data` 和 `template_store` 的关系
 
-- `extract(String html, TemplateContract.TemplateManifest manifest)`
-  - 已经拿到模板对象时使用
-- `extract(String html, String manifestJson)`
-  - 直接传模板 JSON 文本时使用
-- `extract(Path htmlPath, Path manifestPath)`
-  - 直接传 HTML 文件和模板文件路径时使用
-- `extractByTemplateId(String html, Collection<TemplateManifest> manifests, String templateId)`
-  - 内存里已加载多个模板，并且知道目标模板 ID 时使用
-- `findBestManifest(TemplateContract.ExtractionRequest request, Collection<TemplateManifest> manifests)`
-  - 使用请求对象先找最佳模板时使用
-- `findBestManifest(String html, Collection<TemplateManifest> manifests, String siteId, String scenario)`
-  - 需要先从模板列表里自动挑选最优模板时使用
-- `extractBestMatch(String html, Collection<TemplateManifest> manifests, String siteId, String scenario)`
-  - 让组件自动匹配模板并执行时使用
-- `registerCodeHandler(...)`
-  - 当模板中存在 `kind = code` 的 selector 时，用于注册对应处理器
+Java 运行时已经兼容两种初始化方式：
 
-### 6.2 `CachedTemplateExtractionService`
+```java
+new CachedTemplateExtractionService(Paths.get("G:\\code\\Extractor\\scrap-ai-extractor\\data"));
+```
 
-如果你不希望每次请求都重新从模板目录读取 JSON，推荐直接使用这个类。
+或：
 
-它的职责是：
+```java
+new CachedTemplateExtractionService(Paths.get("G:\\code\\Extractor\\scrap-ai-extractor\\data\\template_store"));
+```
 
-- 启动时一次性加载模板目录
-- 把模板列表缓存在内存中
-- 后续所有请求直接复用缓存模板
-- 当模板目录有更新时，由你显式调用 `refresh()` 重新加载
+如果传的是 `data`，并且下面存在 `template_store`，运行时会自动切换到 `data/template_store`。
 
-常用方法包括：
+## 7. 模板匹配逻辑
 
-- `refresh()`
-- `getCachedManifests()`
-- `size()`
+Java 端当前模板匹配应该遵循这套顺序：
+
+1. 读取所有 `active` 正式模板
+2. 如果有 URL：
+   - 解析站点
+   - 优先按 `url_pattern_hash` 排序
+3. 如果没 URL：
+   - 不做 HTML 站点猜测
+   - 允许全库评分匹配
+4. 对候选模板执行 DSL
+5. 根据字段命中率、必填命中率、指纹、站点、URL pattern 等综合打分
+6. 选择得分最高模板
+
+也就是说：
+
+- URL 负责缩小候选范围
+- 页面结构和字段命中率决定最终使用哪个模板
+
+## 8. 推荐直接使用的主入口
+
+推荐业务方直接使用：
+
+- `TemplateExtractionApi`
+
+而不是让业务代码直接依赖一堆底层实现类。
+
+### 8.1 常用接口
+
+- `fromDirectory(Path templateDirectory)`
+- `reloadTemplates()`
+- `getLoadedTemplateCount()`
+- `listTemplates()`
+- `getTemplate(String templateId)`
 - `extract(String url, String html)`
-- `extract(Path htmlPath, String url)` 不提供，当前是 `extract(String url, Path htmlPath)`
+- `extract(String url, Path htmlPath)`
 - `extract(ExtractionRequest request)`
+- `findBestTemplate(String url, String html)`
+- `findBestTemplate(ExtractionRequest request)`
 - `extractByTemplateId(String html, String templateId)`
-- `findBestManifest(String html, String siteId, String scenario)`
-- `findBestManifest(ExtractionRequest request)`
-- `findTemplateById(String templateId)`
-- `registerCodeHandler(...)`
+- `extractByTemplate(String html, TemplateManifest manifest)`
+- `extractByTemplateFile(Path htmlPath, Path manifestPath)`
 
-### 6.3 `TemplateManifestRepository`
+## 9. 使用示例
 
-这个类更偏底层，适合用于：
-
-- 批量加载模板目录
-- 手动管理模板缓存
-- 手动做模板命中分析
-- 单独做页面指纹生成和比对
-
-常用方法包括：
-
-- `loadManifest(Path path)`
-- `loadManifests(Path directory)`
-- `findByTemplateId(...)`
-- `findBestActiveManifest(...)`
-- `buildFingerprint(Document document)`
-- `compareFingerprints(left, right)`
-- `resolveSiteId(request)`
-
-### 6.4 `DeclarativeTemplateEngine`
-
-这个类一般不建议业务层直接使用，除非你要：
-
-- 单独测试某一份 DSL
-- 单独扩展算子或 code handler
-- 在更低层封装自己的执行链路
-
-### 6.5 `TemplateContract.ExtractionRequest`
-
-如果你希望入口更稳定，推荐直接用请求对象。
-
-当前请求对象支持这些字段：
-
-- `url`
-- `html`
-- `siteId`
-- `scenario`
-- `preferredTemplateId`
-
-其中：
-
-- `url` 和 `html` 是最基本输入
-- `siteId` 可选；不传时会优先尝试从 URL host 自动推断
-- `scenario` 可选；传了会用于缩小模板匹配范围
-- `preferredTemplateId` 可选；传了会优先按该模板执行
-
-### 6.6 `TemplateContract.ExtractionExecutionResult`
-
-如果你走的是“`url + html` 自动匹配模板”的主入口，返回值建议使用执行结果对象。
-
-它包含：
-
-- `request`
-- `matchedManifest`
-- `fingerprint`
-- `matchScore`
-- `extractionResult`
-
-## 7. 已支持的后处理算子
-
-当前 Java 版与 Python 版保持一致，支持：
-
-- `strip`
-- `strip_cn_punctuation`
-- `split_cn_list`
-- `unique`
-- `first_non_empty_line`
-- `regex_extract`
-- `regex_replace`
-- `join`
-- `filter_empty`
-- `normalize_whitespace`
-- `to_int`
-- `to_float`
-
-## 8. 使用示例
-
-### 8.1 直接按模板文件执行
+### 9.1 最常见：传入 URL + HTML
 
 ```java
-HtmlTemplateExtractor extractor = new HtmlTemplateExtractor();
-TemplateContract.ExtractionResult result = extractor.extract(
-    java.nio.file.Paths.get("page.html"),
-    java.nio.file.Paths.get("paper_detail_v1.json")
-);
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
-System.out.println(result.data);
-```
+public class Demo {
+    public static void main(String[] args) throws Exception {
+        Path templateDir = Paths.get("G:\\code\\Extractor\\scrap-ai-extractor\\data");
+        TemplateExtractionApi api = TemplateExtractionApi.fromDirectory(templateDir);
 
-### 8.2 直接传 `url + html` 自动匹配模板并抽取
+        String url = "https://erj.ajcass.com/#/issue?id=123010&year=2026&issue=5&title=%E6%9C%80%E6%96%B0%E7%9B%AE%E5%BD%95";
+        String html = new String(
+                Files.readAllBytes(Paths.get("E:\\Documents\\Downloads\\新分类模式下的转移支付财力均等化效应再评估.html")),
+                StandardCharsets.UTF_8
+        );
 
-```java
-CachedTemplateExtractionService service =
-    new CachedTemplateExtractionService(java.nio.file.Paths.get("template_store"));
-String url = "https://example.com/article/123";
-String html = new String(
-    java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("page.html")),
-    java.nio.charset.StandardCharsets.UTF_8
-);
-
-TemplateContract.ExtractionExecutionResult result =
-    service.extract(url, html);
-
-if (result.matchedManifest != null) {
-    System.out.println(result.matchedManifest.templateId);
-    System.out.println(result.matchScore);
-}
-System.out.println(result.extractionResult.data);
-```
-
-### 8.3 使用请求对象执行
-
-```java
-CachedTemplateExtractionService service =
-    new CachedTemplateExtractionService(java.nio.file.Paths.get("template_store"));
-
-TemplateContract.ExtractionRequest request = new TemplateContract.ExtractionRequest();
-request.url = "https://example.com/article/123";
-request.html = new String(
-    java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("page.html")),
-    java.nio.charset.StandardCharsets.UTF_8
-);
-request.scenario = "article_detail";
-
-TemplateContract.ExtractionExecutionResult result = service.extract(request);
-System.out.println(result.extractionResult.data);
-```
-
-### 8.4 模板缓存服务手动刷新
-
-```java
-CachedTemplateExtractionService service =
-    new CachedTemplateExtractionService(java.nio.file.Paths.get("template_store"));
-
-System.out.println(service.size());
-
-// 当模板目录有新增或替换时，手动刷新一次缓存
-service.refresh();
-
-System.out.println(service.size());
-```
-
-### 8.5 先加载模板，再反复执行
-
-```java
-CachedTemplateExtractionService service =
-    new CachedTemplateExtractionService(java.nio.file.Paths.get("template_store"));
-
-String html = new String(
-    java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("page.html")),
-    java.nio.charset.StandardCharsets.UTF_8
-);
-
-TemplateManifestRepository.ManifestSelection selection =
-    service.findBestManifest(html, "example.com", "article_detail");
-
-if (selection != null) {
-    TemplateContract.ExtractionResult result =
-        service.extractByTemplateId(html, selection.manifest.templateId);
-    System.out.println(selection.manifest.templateId);
-    System.out.println(result.data);
-}
-```
-
-### 8.6 直接传入模板 JSON 字符串
-
-```java
-HtmlTemplateExtractor extractor = new HtmlTemplateExtractor();
-String html = "<html><body><h1>示例标题</h1></body></html>";
-String manifestJson = "{...}";
-
-TemplateContract.ExtractionResult result = extractor.extract(html, manifestJson);
-System.out.println(result.data);
-```
-
-### 8.7 注册自定义 code 算子
-
-```java
-CachedTemplateExtractionService service =
-    new CachedTemplateExtractionService(java.nio.file.Paths.get("template_store"));
-
-service.registerCodeHandler("extract_custom_blocks", (document, fieldRule, selectorRule) -> {
-    List<String> values = new ArrayList<>();
-    for (Element element : document.select(".custom-block")) {
-        values.add(element.text());
+        TemplateContract.ExtractionExecutionResult result = api.extract(url, html);
+        System.out.println(result.matchedManifest == null ? null : result.matchedManifest.templateId);
+        System.out.println(result.matchScore);
+        System.out.println(result.extractionResult.data);
     }
-    return values;
-});
+}
 ```
 
-## 9. 在业务工程中的推荐封装方式
+### 9.2 不传 URL，直接扫正式模板库
 
-如果你不想让业务代码直接接触底层细节，建议在自己的工程里再包一层服务，例如：
+```java
+TemplateContract.ExtractionExecutionResult result = api.extract(
+        "",
+        html
+);
+```
 
-- `ArticleExtractionService`
-- `TemplateDrivenHtmlParser`
-- `PageStructuredDataService`
+适用场景：
 
-这层服务负责：
+- 本地 HTML 文件缺失来源 URL
+- 你只想验证模板库里有没有模板能直接匹配这份页面
 
-- 根据业务场景加载模板目录
-- 维护模板缓存
-- 根据 `url + html` 直接调 `extract(...)`
-- 输出业务自己的结果对象
+### 9.3 只找最佳模板，不执行抽取
 
-这样你后续即使替换模板目录、补充 code handler、增加校验逻辑，也不会影响上层业务代码。
+```java
+TemplateManifestRepository.ManifestSelection selection = api.findBestTemplate(url, html);
+if (selection != null) {
+    System.out.println(selection.manifest.templateId);
+    System.out.println(selection.score);
+}
+```
 
-## 10. 设计原则
+### 9.4 指定模板直接抽取
 
-Java 版运行时刻意保持轻量：
+```java
+TemplateContract.ExtractionResult result =
+        api.extractByTemplateId(html, "ajcass_com_detail_page_detail_page_c5d7b04b_v3");
+System.out.println(result.data);
+```
 
-- 不引入服务框架
-- 不耦合数据库
-- 不耦合 HTTP 层
-- 不引入 LLM
+### 9.5 刷新模板目录缓存
 
-这样你可以在任何 Java 工程里，把它当成一个本地模板执行组件使用。
+```java
+api.reloadTemplates();
+System.out.println(api.getLoadedTemplateCount());
+```
 
-## 11. 边界说明
+## 10. AJCASS 论文页实测情况
 
-如果模板里只使用声明式 DSL 和标准后处理算子，Java 侧通常不需要改代码。
+当前 `erj.ajcass.com` 同站点论文页，已经可复用：
 
-只有出现了新的“通用处理范式”时，才建议统一扩展一次 `DeclarativeTemplateEngine`，而不是为某个站点单独写补丁逻辑。
+- `ajcass_com_detail_page_detail_page_c5d7b04b_v3`
+
+实测可命中：
+
+- `中国专利的经济价值：测度、特征及有效性.html`
+- `外资开放式创新有助于“稳外资”目标的实现吗？——基于内外资价值链生产关联视角.html`
+- `新分类模式下的转移支付财力均等化效应再评估.html`
+
+可抽取字段包括：
+
+- `标题`
+- `作者`
+- `摘要`
+- `关键词`
+- `发表时间`
+- `稿件来源`
+- `期刊`
+
+## 11. Spring Boot 建议封装
+
+推荐在业务工程里再包一层自己的服务，例如：
+
+- `TemplateParsingService`
+- `StructuredPageExtractionService`
+- `TemplateDrivenExtractionFacade`
+
+例如：
+
+```java
+@Service
+public class TemplateParsingService {
+    private final TemplateExtractionApi api;
+
+    public TemplateParsingService() throws Exception {
+        this.api = TemplateExtractionApi.fromDirectory(
+                java.nio.file.Paths.get("D:/app/template_store")
+        );
+    }
+
+    public java.util.Map<String, Object> extract(String url, String html) {
+        TemplateContract.ExtractionExecutionResult result = api.extract(url, html);
+        return result.extractionResult.data;
+    }
+}
+```
+
+## 12. 生产使用建议
+
+推荐最终落地方式：
+
+1. Python 项目负责模板生产和模板升级
+2. Java 项目只消费正式模板
+3. 模板目录外置
+4. Java 服务启动时加载模板目录
+5. 模板更新后调用 `reloadTemplates()`
+
+这是最轻量、最稳定、最容易迁移的方案。

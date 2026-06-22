@@ -91,6 +91,20 @@ public class CachedTemplateExtractionService {
     }
 
     public TemplateManifestRepository.ManifestSelection findBestManifest(
+            String url,
+            String html,
+            String siteId,
+            String scenario
+    ) {
+        TemplateContract.ExtractionRequest request = new TemplateContract.ExtractionRequest();
+        request.url = url;
+        request.html = html;
+        request.siteId = siteId;
+        request.scenario = scenario;
+        return extractor.findBestManifest(request, cachedManifests);
+    }
+
+    public TemplateManifestRepository.ManifestSelection findBestManifest(
             TemplateContract.ExtractionRequest request
     ) {
         return extractor.findBestManifest(request, cachedManifests);

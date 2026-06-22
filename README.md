@@ -3,11 +3,13 @@
 这是一个只专注于“网页解析”的项目，不负责爬虫抓取。
 
 输入：
+
 - `url`
 - `raw_html`
 - `user_prompt`
 
 输出：
+
 - 结构化抽取结果
 - 命中的正式模板信息
 - 校验结果
@@ -15,13 +17,70 @@
 
 项目目标是把“首次依赖 LLM 的抽取”逐步沉淀成“可复用、可迁移、可版本化”的正式模板 `JSON + DSL`。
 
-## 核心能力
+## 当前核心策略
 
-- 首次遇到的新页面：优先走 LLM 抽取。
-- LLM 抽取成功后：自动生成候选模板，并在条件满足时固化为正式模板。
-- 已存在正式模板的页面：优先走确定性模板解析。
-- 模板失效、字段缺失、校验失败时：自动回退到 LLM。
-- 批量解析：只走正式模板，不调用 LLM，并把结果写入 JSONL。
+### 1. 不再从 HTML 推断 URL
+
+当前系统**不会**再从 HTML 内容里扫描 `http://...` 或 `https://...` 来推断站点。
+
+原因很简单：
+
+- HTML 里的 URL 很多是脚本、SVG、静态资源、第三方链接
+- 它们不能代表当前页面真实来源
+- 用这些噪声 URL 反推站点，会导致模板匹配被严重干扰
+
+现在的规则是：
+
+- 如果传了 `url`，站点识别只看这个 `url`
+- 如果没传 `url`，站点记为 `unknown`
+
+### 2. 无 URL 时不再直接失败
+
+如果没有传 `url`：
+
+- 系统不会再尝试从 HTML 猜站点
+- 也不会直接放弃模板匹配
+- 而是对正式模板库做运行时 DSL 评分匹配
+
+也就是说：
+
+- 有 URL：先按站点和 URL pattern 缩小范围，再评分
+- 无 URL：直接对正式模板做评分匹配
+
+### 3. 只有真正命中过旧模板，才允许升级旧模板
+
+当前模板闭环已经收紧：
+
+- 如果本次请求先命中了旧模板，但抽取校验失败，随后 LLM fallback 成功
+  - 这时允许把候选模板升级到该旧模板家族
+- 如果本次请求**根本没有命中任何旧模板**
+  - 那么 LLM fallback 成功后，只能创建新模板
+  - 不允许再去覆盖现有模板家族
+
+这避免了过去那种反直觉情况：
+
+- 运行时没命中旧模板
+- 结果却拿新页面去覆盖旧模板版本
+
+### 4. 模板最终是否命中，取决于“运行结果”
+
+模板不是靠 URL 或指纹直接拍板的，而是：
+
+1. 先做候选召回
+2. 再把候选模板真正跑到当前 HTML 上
+3. 按抽取效果评分
+4. 选择得分最高且通过门槛的模板
+
+主要评分因子：
+
+- `required_hit_rate`
+- `selector_hit_rate`
+- `fingerprint_score`
+- `classification_affinity`
+- `site_affinity`
+- `url_pattern_affinity`
+
+所以 URL 的作用只是“帮助检索模板”，不是最终决定用哪个模板。
 
 ## 项目结构
 
@@ -37,10 +96,10 @@ docs/
   architecture.md
   template-design.md
   java-runtime.md
+  java/
 scripts/
   run_ui.ps1
   stop_ui.ps1
-  benchmark_template_reuse.py
 src/hybrid_extractor/
   controllers/
   services/
@@ -92,6 +151,7 @@ Copy-Item .\config\app_config.template.json .\config\app_config.json
 ```
 
 说明：
+
 - `config/app_config.json` 已加入 `.gitignore`
 - 如果设置了环境变量 `DEEPSEEK_API_KEY`，会覆盖配置文件中的 `api_key`
 
@@ -107,24 +167,26 @@ python .\local_medical_html_extraction.py `
 ```
 
 说明：
-- 这是默认模式。
-- 会先尝试命中正式模板。
-- 未命中或模板失效时，允许回退到 LLM。
+
+- 这是默认模式
+- 会先尝试命中正式模板
+- 未命中或模板校验失败时，允许回退到 LLM
 
 ### 2. 单条仅模板解析
 
 ```powershell
 python .\local_medical_html_extraction.py `
   --html-path "E:\Documents\Downloads\页面.html" `
-  --url "https://example.com/page" `
   --prompt "提取页面中的结构化信息" `
   --template-only
 ```
 
 说明：
-- 该模式要求必须提供 `--url`
-- 若没有命中正式模板，会直接返回失败
-- 不会调用 LLM
+
+- 该模式**可以不传 URL**
+- 如果传了 URL，会优先按 URL pattern 缩小模板检索范围
+- 如果没传 URL，会直接对正式模板库做评分匹配
+- 该模式不会调用 LLM
 
 ### 3. 批量模板解析
 
@@ -135,11 +197,12 @@ python .\local_medical_html_extraction.py `
 {"url":"https://example.com/paper/2","html_path":"E:\\pages\\paper2.html"}
 ```
 
-兼容已有字段：
+兼容字段：
+
 - `html_path`
 - `file_path`
 
-执行命令：
+执行：
 
 ```powershell
 python .\local_medical_html_extraction.py `
@@ -149,9 +212,10 @@ python .\local_medical_html_extraction.py `
 ```
 
 说明：
+
 - 批量模式只走正式模板
-- 每条记录都必须包含 `url`
-- 输出结果 JSONL 中一定会保留 `url`
+- 每条记录建议提供 `url`
+- 输出结果 JSONL 中会保留 `url`
 
 ### 4. 启动本地 Web UI
 
@@ -160,6 +224,7 @@ python .\local_medical_html_extraction.py `
 ```
 
 默认地址：
+
 - UI: `http://127.0.0.1:8000/`
 - Health: `http://127.0.0.1:8000/health`
 
@@ -172,37 +237,55 @@ python .\local_medical_html_extraction.py `
 .\scripts\stop_ui.ps1
 ```
 
-如果你修改了界面代码但浏览器里还是旧页面，通常是旧的 `8000` 端口进程还在运行。先执行：
-
-```powershell
-.\scripts\run_ui.ps1 -Stop
-.\scripts\run_ui.ps1
-```
-
 ## 如何判断本次走的是模板还是 LLM
 
-看返回结果里的：
+看返回结果中的：
 
 - `extractor_type`
   - `deterministic`：走正式模板
-  - `hybrid`：模板尝试后回退到 LLM
-  - `llm`：直接走 LLM
-  - `none`：模板专用模式下未命中模板
+  - `hybrid`：先命中模板，但校验失败后回退到 LLM
+  - `llm`：未命中模板，直接走 LLM
+  - `none`：`template_only` 模式下未命中任何模板
 
 还可以看：
+
 - `template_id`
 - `debug_trace.template_match`
 - `debug_trace.drift_report`
 - `debug_trace.run_mode`
 
+## AJCASS 论文页现状
+
+当前 `erj.ajcass.com` 的论文详情页，已经沉淀为正式模板：
+
+- `ajcass_com_detail_page_detail_page_c5d7b04b_v3`
+
+这个模板当前可稳定抽取：
+
+- `标题`
+- `作者`
+- `摘要`
+- `关键词`
+- `发表时间`
+- `稿件来源`
+- `期刊`
+
+并且已经验证可以复用到以下同站点论文页：
+
+- `中国专利的经济价值：测度、特征及有效性.html`
+- `外资开放式创新有助于“稳外资”目标的实现吗？——基于内外资价值链生产关联视角.html`
+- `新分类模式下的转移支付财力均等化效应再评估.html`
+
 ## API
 
 核心接口：
+
 - `POST /extract`
 - `POST /extract/batch`
 - `GET /health`
 
 模板管理接口：
+
 - `GET /templates`
 - `GET /templates/{template_id}`
 - `POST /templates/{template_id}/activate`
@@ -215,29 +298,6 @@ python .\local_medical_html_extraction.py `
 - `POST /template-candidates/{candidate_id}/promote`
 - `DELETE /template-candidates/{candidate_id}`
 
-### `/extract` 请求示例
-
-```json
-{
-  "url": "https://example.com/page",
-  "raw_html": "<html>...</html>",
-  "user_prompt": "提取页面中的结构化信息"
-}
-```
-
-### `/extract/batch` 请求示例
-
-```json
-{
-  "jsonl_content": "{\"url\":\"https://example.com/1\",\"html_path\":\"E:\\\\pages\\\\1.html\"}",
-  "user_prompt": "提取结构化信息",
-  "output_jsonl_path": "G:\\code\\Extractor\\scrap-ai-extractor\\data\\batch_results\\result.jsonl"
-}
-```
-
-也支持传入：
-- `jsonl_path`
-
 ## 测试
 
 ```powershell
@@ -246,7 +306,10 @@ python -m compileall src tests
 ```
 
 当前本地验证结果：
-- `pytest -q`：`41 passed`
+
+- `pytest -q`：通过
+- `python -m compileall src tests`：通过
+- Java 运行时 `mvn -q test`：通过
 
 ## 文档
 
