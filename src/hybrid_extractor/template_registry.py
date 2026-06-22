@@ -1,26 +1,43 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
 from .fingerprinting import compare_fingerprints
-from .models import ExtractionIntent, ExtractionRequest, PageClassification, TemplateMatch
+from .models import ExtractionIntent, ExtractionRequest, PageClassification, TemplateMatch, TemplateManifest
 from .preprocessing import normalize_text
-from .validation import validate_data
+from .rule_runtime import RuleRuntime
 from .services.template_service import TemplateService
-from .templates import (
-    BaseTemplateParser,
-    GenericRuleTemplateParser,
-)
+from .templates import BaseTemplateParser, GenericRuleTemplateParser
+from .validation import validate_data
+
+
+@dataclass
+class TemplateIndex:
+    by_site: dict[str, list[TemplateManifest]] = field(default_factory=dict)
+    by_site_url_hash: dict[tuple[str, str], list[TemplateManifest]] = field(default_factory=dict)
+    by_site_scenario: dict[tuple[str, str], list[TemplateManifest]] = field(default_factory=dict)
+    by_scenario: dict[str, list[TemplateManifest]] = field(default_factory=dict)
+    by_dom_signature: dict[str, list[TemplateManifest]] = field(default_factory=dict)
+    by_template_id: dict[str, TemplateManifest] = field(default_factory=dict)
+    active_manifests: list[TemplateManifest] = field(default_factory=list)
 
 
 class TemplateRegistry:
+    CHEAP_TOP_K = 5
+    EXACT_URL_MATCH_LIMIT = 8
+
     def __init__(self, template_service: TemplateService | None = None) -> None:
         self.template_service = template_service or TemplateService()
         self.parsers: list[BaseTemplateParser] = []
         self.parsers_by_key = {parser.parser_key: parser for parser in self.parsers}
+        self._rule_runtime = RuleRuntime()
+        self._dsl_parser_cache: dict[str, GenericRuleTemplateParser] = {}
+        self._index_cache: TemplateIndex | None = None
+        self._index_token: tuple | None = None
 
     def match(
         self,
@@ -55,35 +72,23 @@ class TemplateRegistry:
         fingerprint,
     ) -> Tuple[Optional[TemplateMatch], Optional[BaseTemplateParser]] | None:
         manifests = self.template_service.load_manifests()
-        dsl_manifests = [manifest for manifest in manifests if manifest.extraction_plan is not None]
-        legacy_manifests = [manifest for manifest in manifests if manifest.extraction_plan is None]
-
-        preferred = self._select_best_manifest(
-            dsl_manifests,
-            request,
-            soup,
-            classification,
-            fingerprint,
-        )
-        if preferred is None:
-            preferred = self._select_best_manifest(
-                legacy_manifests,
-                request,
-                soup,
-                classification,
-                fingerprint,
-            )
-
-        if preferred is None:
+        if not manifests:
             return None
 
-        best_manifest, best_score, diagnostics = preferred
-        parser = None
-        if best_manifest.extraction_plan is not None:
-            parser = GenericRuleTemplateParser(best_manifest)
-        elif best_manifest.parser_key in self.parsers_by_key:
-            parser = self.parsers_by_key[best_manifest.parser_key]
+        index = self._get_index(manifests)
+        page_context = self._rule_runtime.build_page_context(soup)
+        selection = self._select_best_manifest(
+            index=index,
+            request=request,
+            classification=classification,
+            fingerprint=fingerprint,
+            page_context=page_context,
+        )
+        if selection is None:
+            return None
 
+        best_manifest, best_score, diagnostics = selection
+        parser = self._get_parser(best_manifest)
         if parser is None:
             return None
 
@@ -105,69 +110,166 @@ class TemplateRegistry:
             parser,
         )
 
+    def _get_index(self, manifests: list[TemplateManifest]) -> TemplateIndex:
+        token = tuple(
+            (
+                manifest.template_id,
+                manifest.site_id,
+                manifest.scenario,
+                manifest.page_type,
+                manifest.url_pattern_hash,
+                manifest.active,
+                manifest.lifecycle_status,
+            )
+            for manifest in manifests
+        )
+        if self._index_cache is not None and token == self._index_token:
+            return self._index_cache
+
+        index = TemplateIndex()
+        for manifest in manifests:
+            index.by_template_id[manifest.template_id] = manifest
+            if not manifest.active or manifest.lifecycle_status != "active":
+                continue
+            index.active_manifests.append(manifest)
+            site_family = self._site_family(manifest.site_id)
+            if site_family:
+                index.by_site.setdefault(site_family, []).append(manifest)
+                if manifest.url_pattern_hash:
+                    index.by_site_url_hash.setdefault((site_family, manifest.url_pattern_hash), []).append(manifest)
+                if manifest.scenario:
+                    index.by_site_scenario.setdefault((site_family, manifest.scenario), []).append(manifest)
+            if manifest.scenario:
+                index.by_scenario.setdefault(manifest.scenario, []).append(manifest)
+            if manifest.fingerprint and manifest.fingerprint.dom_signature:
+                index.by_dom_signature.setdefault(manifest.fingerprint.dom_signature, []).append(manifest)
+
+        self._index_cache = index
+        self._index_token = token
+        return index
+
     def _select_best_manifest(
         self,
-        manifests,
+        index: TemplateIndex,
         request: ExtractionRequest,
-        soup: BeautifulSoup,
         classification: PageClassification,
         fingerprint,
+        page_context,
     ) -> tuple | None:
+        candidates = self._recall_candidates(index, request, classification, fingerprint)
+        if not candidates:
+            return None
+
+        cheap_ranked = sorted(
+            candidates,
+            key=lambda manifest: self._cheap_score_manifest(manifest, request, classification, fingerprint),
+            reverse=True,
+        )
+        expensive_candidates = cheap_ranked[: self.CHEAP_TOP_K]
+
         best_manifest = None
         best_score = 0.0
         best_diagnostics: dict[str, float] | None = None
 
-        classification_site_family = self._site_family(classification.site_id)
-        request_url_hash = self.template_service.build_url_pattern_hash_for_url(request.url) if request.url else ""
-        should_filter_by_site = bool(
-            classification.site_id
-            and classification.site_id != "unknown"
-        )
-
-        same_site_manifests = []
-        for manifest in manifests:
-            if not manifest.active or manifest.lifecycle_status != "active":
-                continue
-            if should_filter_by_site and not self._site_matches(
-                manifest.site_id,
-                classification.site_id,
-                classification_site_family,
-            ):
-                continue
-            same_site_manifests.append(manifest)
-
-        prioritized_manifests = self._prioritize_by_url_pattern(same_site_manifests, request_url_hash)
-
-        for manifest in prioritized_manifests:
+        for manifest in expensive_candidates:
             diagnostics = self._score_manifest(
-                manifest,
-                request,
-                soup,
-                classification,
-                fingerprint,
+                manifest=manifest,
+                request=request,
+                classification=classification,
+                fingerprint=fingerprint,
+                page_context=page_context,
             )
             score = diagnostics["match_score"]
-            if score <= 0:
-                continue
-
             if score <= best_score:
                 continue
-
             best_manifest = manifest
             best_score = score
             best_diagnostics = diagnostics
+            if self._should_early_exit(diagnostics):
+                break
 
         if best_manifest is None:
             return None
         return best_manifest, best_score, best_diagnostics or {}
 
-    def _score_manifest(
+    def _recall_candidates(
         self,
-        manifest,
+        index: TemplateIndex,
         request: ExtractionRequest,
-        soup: BeautifulSoup,
         classification: PageClassification,
         fingerprint,
+    ) -> list[TemplateManifest]:
+        site_family = self._site_family(classification.site_id)
+        request_url_hash = self.template_service.build_url_pattern_hash_for_url(request.url) if request.url else ""
+        results: list[TemplateManifest] = []
+        seen: set[str] = set()
+
+        def extend(items: list[TemplateManifest] | None) -> None:
+            if not items:
+                return
+            for item in items:
+                if item.template_id in seen:
+                    continue
+                seen.add(item.template_id)
+                results.append(item)
+
+        if request.url and site_family:
+            exact = index.by_site_url_hash.get((site_family, request_url_hash), [])
+            if exact and len(exact) <= self.EXACT_URL_MATCH_LIMIT:
+                return list(exact)
+            extend(exact)
+            extend(index.by_site_scenario.get((site_family, classification.scenario), []))
+            extend(index.by_site.get(site_family, []))
+            if results:
+                return results
+
+        if not request.url:
+            if classification.scenario and classification.scenario != "unknown":
+                extend(index.by_scenario.get(classification.scenario, []))
+            if fingerprint is not None and getattr(fingerprint, "dom_signature", ""):
+                extend(index.by_dom_signature.get(fingerprint.dom_signature, []))
+            if results:
+                return results
+
+        if site_family:
+            extend(index.by_site.get(site_family, []))
+        if classification.scenario and classification.scenario != "unknown":
+            extend(index.by_scenario.get(classification.scenario, []))
+        if fingerprint is not None and getattr(fingerprint, "dom_signature", ""):
+            extend(index.by_dom_signature.get(fingerprint.dom_signature, []))
+        extend(index.active_manifests)
+        return results
+
+    def _cheap_score_manifest(
+        self,
+        manifest: TemplateManifest,
+        request: ExtractionRequest,
+        classification: PageClassification,
+        fingerprint,
+    ) -> float:
+        fingerprint_score = 0.0
+        if manifest.fingerprint and fingerprint is not None:
+            fingerprint_score = compare_fingerprints(fingerprint, manifest.fingerprint)
+        classification_affinity = self._classification_affinity(manifest, classification)
+        site_affinity = self._site_affinity(manifest.site_id, classification.site_id)
+        url_pattern_affinity = self._url_pattern_affinity(manifest, request.url)
+        score = (
+            0.42 * classification_affinity
+            + 0.28 * site_affinity
+            + 0.2 * url_pattern_affinity
+            + 0.1 * fingerprint_score
+        )
+        if manifest.extraction_plan is not None:
+            score += 0.03
+        return round(min(score, 1.0), 4)
+
+    def _score_manifest(
+        self,
+        manifest: TemplateManifest,
+        request: ExtractionRequest,
+        classification: PageClassification,
+        fingerprint,
+        page_context,
     ) -> dict[str, float]:
         fingerprint_score = 0.0
         if manifest.fingerprint and fingerprint is not None:
@@ -178,46 +280,30 @@ class TemplateRegistry:
         url_pattern_affinity = self._url_pattern_affinity(manifest, request.url)
 
         if manifest.extraction_plan is None:
-            if manifest.scenario != classification.scenario:
-                return {
-                    "match_score": 0.0,
-                    "fingerprint_score": fingerprint_score,
-                    "selector_hit_rate": 0.0,
-                    "required_hit_rate": 0.0,
-                    "classification_affinity": classification_affinity,
-                    "site_affinity": site_affinity,
-                    "url_pattern_affinity": url_pattern_affinity,
-                }
-            if fingerprint_score < 0.8:
-                return {
-                    "match_score": 0.0,
-                    "fingerprint_score": fingerprint_score,
-                    "selector_hit_rate": 0.0,
-                    "required_hit_rate": 0.0,
-                    "classification_affinity": classification_affinity,
-                    "site_affinity": site_affinity,
-                    "url_pattern_affinity": url_pattern_affinity,
-                }
-            return {
-                "match_score": round(
-                    0.65 * fingerprint_score
-                    + 0.20 * classification_affinity
-                    + 0.10 * site_affinity
-                    + 0.05 * url_pattern_affinity,
-                    4,
-                ),
-                "fingerprint_score": round(fingerprint_score, 4),
-                "selector_hit_rate": 0.0,
-                "required_hit_rate": 0.0,
-                "classification_affinity": round(classification_affinity, 4),
-                "site_affinity": round(site_affinity, 4),
-                "url_pattern_affinity": round(url_pattern_affinity, 4),
-            }
+            if manifest.scenario != classification.scenario or fingerprint_score < 0.8:
+                return self._score_payload(
+                    0.0, fingerprint_score, 0.0, 0.0, classification_affinity, site_affinity, url_pattern_affinity
+                )
+            legacy_score = (
+                0.65 * fingerprint_score
+                + 0.20 * classification_affinity
+                + 0.10 * site_affinity
+                + 0.05 * url_pattern_affinity
+            )
+            return self._score_payload(
+                legacy_score,
+                fingerprint_score,
+                0.0,
+                0.0,
+                classification_affinity,
+                site_affinity,
+                url_pattern_affinity,
+            )
 
-        parser = GenericRuleTemplateParser(manifest)
+        parser = self._get_parser(manifest)
         extracted = parser.extract(
             request,
-            soup,
+            page_context,
             intent=ExtractionIntent(normalized_prompt=request.user_prompt),
         ).data
         selector_hit_rate = self._selector_hit_rate(extracted, manifest)
@@ -246,6 +332,26 @@ class TemplateRegistry:
         elif selector_hit_rate < 0.35:
             score = 0.0
 
+        return self._score_payload(
+            score,
+            fingerprint_score,
+            selector_hit_rate,
+            required_hit_rate,
+            classification_affinity,
+            site_affinity,
+            url_pattern_affinity,
+        )
+
+    def _score_payload(
+        self,
+        score: float,
+        fingerprint_score: float,
+        selector_hit_rate: float,
+        required_hit_rate: float,
+        classification_affinity: float,
+        site_affinity: float,
+        url_pattern_affinity: float,
+    ) -> dict[str, float]:
         return {
             "match_score": round(min(score, 1.0), 4),
             "fingerprint_score": round(fingerprint_score, 4),
@@ -256,7 +362,25 @@ class TemplateRegistry:
             "url_pattern_affinity": round(url_pattern_affinity, 4),
         }
 
-    def _selector_hit_rate(self, data: dict, manifest) -> float:
+    def _should_early_exit(self, diagnostics: dict[str, float]) -> bool:
+        return (
+            diagnostics.get("url_pattern_affinity", 0.0) >= 1.0
+            and diagnostics.get("classification_affinity", 0.0) >= 0.95
+            and diagnostics.get("required_hit_rate", 0.0) >= 0.95
+            and diagnostics.get("selector_hit_rate", 0.0) >= 0.95
+            and diagnostics.get("fingerprint_score", 0.0) >= 0.9
+        )
+
+    def _get_parser(self, manifest: TemplateManifest) -> BaseTemplateParser | None:
+        if manifest.extraction_plan is not None:
+            cached = self._dsl_parser_cache.get(manifest.template_id)
+            if cached is None:
+                cached = GenericRuleTemplateParser(manifest, runtime=self._rule_runtime)
+                self._dsl_parser_cache[manifest.template_id] = cached
+            return cached
+        return self.parsers_by_key.get(manifest.parser_key)
+
+    def _selector_hit_rate(self, data: dict, manifest: TemplateManifest) -> float:
         total_fields = len(manifest.extraction_plan.fields) if manifest.extraction_plan else 0
         if total_fields == 0:
             return 0.0
@@ -267,7 +391,7 @@ class TemplateRegistry:
                 hit_count += 1
         return hit_count / total_fields
 
-    def _classification_affinity(self, manifest, classification: PageClassification) -> float:
+    def _classification_affinity(self, manifest: TemplateManifest, classification: PageClassification) -> float:
         score = 0.1
         if manifest.scenario == classification.scenario:
             score += 0.6
@@ -289,18 +413,6 @@ class TemplateRegistry:
         if isinstance(value, (list, tuple, dict, set)):
             return len(value) > 0
         return True
-
-    def _site_matches(
-        self,
-        manifest_site_id: str,
-        request_site_id: str,
-        request_site_family: str = "",
-    ) -> bool:
-        if manifest_site_id == request_site_id:
-            return True
-        if not manifest_site_id or not request_site_id:
-            return False
-        return self._site_family(manifest_site_id) == (request_site_family or self._site_family(request_site_id))
 
     def _site_affinity(self, manifest_site_id: str, request_site_id: str) -> float:
         if manifest_site_id == request_site_id:
@@ -327,17 +439,7 @@ class TemplateRegistry:
             return ".".join(parts[-3:])
         return ".".join(parts[-2:])
 
-    def _prioritize_by_url_pattern(self, manifests, request_url_hash: str):
-        if not request_url_hash:
-            return list(manifests)
-
-        exact = [manifest for manifest in manifests if manifest.url_pattern_hash == request_url_hash]
-        if exact:
-            others = [manifest for manifest in manifests if manifest.url_pattern_hash != request_url_hash]
-            return exact + others
-        return list(manifests)
-
-    def _url_pattern_affinity(self, manifest, request_url: str) -> float:
+    def _url_pattern_affinity(self, manifest: TemplateManifest, request_url: str) -> float:
         if not request_url or not manifest.url_pattern_hash:
             return 0.0
         request_hash = self.template_service.build_url_pattern_hash_for_url(request_url)

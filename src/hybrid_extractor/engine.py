@@ -20,7 +20,7 @@ from .models import (
     TemplateFieldAnalysis,
     TemplateManifest,
 )
-from .preprocessing import build_soup, clean_html, extract_page_title, normalize_text
+from .preprocessing import build_clean_soup, extract_page_title, normalize_text
 from .prompts import (
     PROMPT_VERSION,
     build_template_analysis_prompt,
@@ -51,12 +51,8 @@ class HybridExtractionEngine:
         phase_start = perf_counter()
         timings_ms: dict[str, float] = {}
 
-        cleaned_html = clean_html(request.raw_html)
-        timings_ms["clean_html"] = round((perf_counter() - phase_start) * 1000, 2)
-        phase_start = perf_counter()
-        request = request.model_copy(update={"raw_html": cleaned_html})
-        soup = build_soup(cleaned_html)
-        timings_ms["build_soup"] = round((perf_counter() - phase_start) * 1000, 2)
+        soup = build_clean_soup(request.raw_html)
+        timings_ms["build_clean_soup"] = round((perf_counter() - phase_start) * 1000, 2)
         phase_start = perf_counter()
         title = extract_page_title(soup)
         timings_ms["extract_title"] = round((perf_counter() - phase_start) * 1000, 2)
@@ -203,6 +199,10 @@ class HybridExtractionEngine:
             )
 
         phase_start = perf_counter()
+        cleaned_html = str(soup)
+        timings_ms["serialize_clean_html"] = round((perf_counter() - phase_start) * 1000, 2)
+        request = request.model_copy(update={"raw_html": cleaned_html})
+        phase_start = perf_counter()
         llm_result = self.fallback_extractor.extract(request, intent)
         debug_trace["timings_ms"]["llm_fallback"] = round((perf_counter() - phase_start) * 1000, 2)
         candidate_seed_data = self._prepare_candidate_seed_data(llm_result.data)
@@ -246,8 +246,7 @@ class HybridExtractionEngine:
             if solidified_manifest is not None:
                 debug_trace["solidified_template_id"] = solidified_manifest.template_id
                 debug_trace["solidified_template_path"] = str(
-                    self.template_service.template_store_dir
-                    / f"{solidified_manifest.template_id}.json"
+                    self.template_service._manifest_storage_path(solidified_manifest)
                 )
 
         status = "success" if llm_validation.passed else "failed"

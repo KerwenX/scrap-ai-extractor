@@ -21,6 +21,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TemplateManifestRepository {
+    private static final int CHEAP_TOP_K = 5;
+    private static final int EXACT_URL_MATCH_LIMIT = 8;
     private final ObjectMapper objectMapper;
 
     public TemplateManifestRepository() {
@@ -93,26 +95,25 @@ public class TemplateManifestRepository {
         TemplateContract.TemplateManifest bestManifest = null;
         double bestScore = 0.0d;
         String requestUrlPatternHash = buildUrlPatternHash(url);
-        List<TemplateContract.TemplateManifest> scoped = new ArrayList<TemplateContract.TemplateManifest>();
+        List<TemplateContract.TemplateManifest> recalled =
+                recallCandidates(manifests, siteId, scenario, requestUrlPatternHash, fingerprint);
+        List<ScoredManifest> cheapRanked = new ArrayList<ScoredManifest>();
 
-        for (TemplateContract.TemplateManifest manifest : manifests) {
-            TemplateContract.TemplateManifest normalized = normalizeManifest(manifest);
-            if (!normalized.active || !"active".equals(normalized.lifecycleStatus)) {
-                continue;
-            }
-            if (!matchesScope(normalized, siteId, scenario)) {
-                continue;
-            }
-            scoped.add(normalized);
+        for (TemplateContract.TemplateManifest normalized : recalled) {
+            cheapRanked.add(new ScoredManifest(
+                    normalized,
+                    cheapScore(normalized, siteId, scenario, requestUrlPatternHash, fingerprint)
+            ));
         }
+        cheapRanked.sort((left, right) -> Double.compare(right.score, left.score));
 
-        List<TemplateContract.TemplateManifest> prioritized =
-                prioritizeByUrlPattern(scoped, requestUrlPatternHash);
-
-        for (TemplateContract.TemplateManifest normalized : prioritized) {
+        int limit = Math.min(CHEAP_TOP_K, cheapRanked.size());
+        for (int i = 0; i < limit; i++) {
+            TemplateContract.TemplateManifest normalized = cheapRanked.get(i).manifest;
             double score = 0.0d;
             double urlPatternAffinity = urlPatternAffinity(normalized, requestUrlPatternHash);
             double siteAffinity = siteAffinity(normalized.siteId, siteId);
+            double classificationAffinity = classificationAffinity(normalized, scenario);
             if (normalized.fingerprint != null && fingerprint != null) {
                 score = compareFingerprints(fingerprint, normalized.fingerprint);
                 if (score < 0.8d) {
@@ -122,11 +123,17 @@ public class TemplateManifestRepository {
                 score = 0.81d;
             }
 
-            score += 0.05d * urlPatternAffinity + 0.03d * siteAffinity;
+            score += 0.07d * urlPatternAffinity + 0.05d * siteAffinity + 0.08d * classificationAffinity;
 
             if (score > bestScore) {
                 bestScore = score;
                 bestManifest = normalized;
+                if (urlPatternAffinity >= 1.0d
+                        && classificationAffinity >= 1.0d
+                        && siteAffinity >= 0.85d
+                        && score >= 0.95d) {
+                    break;
+                }
             }
         }
 
@@ -134,6 +141,125 @@ public class TemplateManifestRepository {
             return null;
         }
         return new ManifestSelection(bestManifest, bestScore, fingerprint);
+    }
+
+    private List<TemplateContract.TemplateManifest> recallCandidates(
+            Collection<TemplateContract.TemplateManifest> manifests,
+            String siteId,
+            String scenario,
+            String requestUrlPatternHash,
+            TemplateContract.PageFingerprint fingerprint
+    ) {
+        List<TemplateContract.TemplateManifest> active = new ArrayList<TemplateContract.TemplateManifest>();
+        for (TemplateContract.TemplateManifest manifest : manifests) {
+            TemplateContract.TemplateManifest normalized = normalizeManifest(manifest);
+            if (!normalized.active || !"active".equals(normalized.lifecycleStatus)) {
+                continue;
+            }
+            active.add(normalized);
+        }
+
+        String siteFamily = siteId == null ? "" : siteFamily(siteId);
+        List<TemplateContract.TemplateManifest> exact = new ArrayList<TemplateContract.TemplateManifest>();
+        List<TemplateContract.TemplateManifest> sameSiteScenario = new ArrayList<TemplateContract.TemplateManifest>();
+        List<TemplateContract.TemplateManifest> sameSite = new ArrayList<TemplateContract.TemplateManifest>();
+        List<TemplateContract.TemplateManifest> sameScenario = new ArrayList<TemplateContract.TemplateManifest>();
+        List<TemplateContract.TemplateManifest> sameFingerprint = new ArrayList<TemplateContract.TemplateManifest>();
+
+        for (TemplateContract.TemplateManifest manifest : active) {
+            if (!requestUrlPatternHash.isEmpty()
+                    && requestUrlPatternHash.equals(nullToEmpty(manifest.urlPatternHash))
+                    && siteMatches(manifest.siteId, siteId)) {
+                exact.add(manifest);
+                continue;
+            }
+            if (siteMatches(manifest.siteId, siteId) && stringEquals(manifest.scenario, scenario)) {
+                sameSiteScenario.add(manifest);
+                continue;
+            }
+            if (!siteFamily.isEmpty() && siteMatches(manifest.siteId, siteId)) {
+                sameSite.add(manifest);
+                continue;
+            }
+            if (scenario != null && !scenario.trim().isEmpty() && stringEquals(manifest.scenario, scenario)) {
+                sameScenario.add(manifest);
+                continue;
+            }
+            if (fingerprint != null
+                    && manifest.fingerprint != null
+                    && stringEquals(manifest.fingerprint.domSignature, fingerprint.domSignature)) {
+                sameFingerprint.add(manifest);
+            }
+        }
+
+        if (!exact.isEmpty() && exact.size() <= EXACT_URL_MATCH_LIMIT) {
+            return exact;
+        }
+
+        List<TemplateContract.TemplateManifest> recalled = new ArrayList<TemplateContract.TemplateManifest>();
+        appendDistinct(recalled, exact);
+        appendDistinct(recalled, sameSiteScenario);
+        appendDistinct(recalled, sameSite);
+        appendDistinct(recalled, sameScenario);
+        appendDistinct(recalled, sameFingerprint);
+        if (recalled.isEmpty()) {
+            appendDistinct(recalled, active);
+        }
+        return recalled;
+    }
+
+    private void appendDistinct(
+            List<TemplateContract.TemplateManifest> target,
+            List<TemplateContract.TemplateManifest> source
+    ) {
+        Set<String> ids = target.stream()
+                .map(manifest -> manifest.templateId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (TemplateContract.TemplateManifest manifest : source) {
+            if (ids.add(manifest.templateId)) {
+                target.add(manifest);
+            }
+        }
+    }
+
+    private double cheapScore(
+            TemplateContract.TemplateManifest manifest,
+            String siteId,
+            String scenario,
+            String requestUrlPatternHash,
+            TemplateContract.PageFingerprint fingerprint
+    ) {
+        double fingerprintScore = 0.0d;
+        if (manifest.fingerprint != null && fingerprint != null) {
+            fingerprintScore = compareFingerprints(fingerprint, manifest.fingerprint);
+        }
+        double classificationAffinity = classificationAffinity(manifest, scenario);
+        double siteAffinity = siteAffinity(manifest.siteId, siteId);
+        double urlPatternAffinity = urlPatternAffinity(manifest, requestUrlPatternHash);
+        double score = 0.42d * classificationAffinity
+                + 0.28d * siteAffinity
+                + 0.20d * urlPatternAffinity
+                + 0.10d * fingerprintScore;
+        if (manifest.extractionPlan != null) {
+            score += 0.03d;
+        }
+        return score;
+    }
+
+    private double classificationAffinity(
+            TemplateContract.TemplateManifest manifest,
+            String scenario
+    ) {
+        if (scenario == null || scenario.trim().isEmpty()) {
+            return 0.25d;
+        }
+        if (stringEquals(manifest.scenario, scenario)) {
+            return 1.0d;
+        }
+        if ("unknown".equals(manifest.scenario) || "unknown".equals(scenario)) {
+            return 0.4d;
+        }
+        return 0.1d;
     }
 
     public ManifestSelection findBestActiveManifest(
@@ -378,6 +504,10 @@ public class TemplateManifestRepository {
         return requestUrlPatternHash.equals(manifest.urlPatternHash) ? 1.0d : 0.0d;
     }
 
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
     private static boolean siteMatches(String left, String right) {
         if (left == null || right == null) {
             return false;
@@ -467,6 +597,16 @@ public class TemplateManifestRepository {
             this.manifest = manifest;
             this.score = score;
             this.fingerprint = fingerprint;
+        }
+    }
+
+    private static class ScoredManifest {
+        private final TemplateContract.TemplateManifest manifest;
+        private final double score;
+
+        private ScoredManifest(TemplateContract.TemplateManifest manifest, double score) {
+            this.manifest = manifest;
+            this.score = score;
         }
     }
 }

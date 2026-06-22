@@ -12,6 +12,7 @@ from ..models import (
     PageClassification,
     TemplateMatch,
 )
+from ..rule_runtime import PageContext
 
 
 class BaseTemplateParser(ABC):
@@ -36,7 +37,7 @@ class BaseTemplateParser(ABC):
     def extract(
         self,
         request: ExtractionRequest,
-        soup: BeautifulSoup,
+        soup: BeautifulSoup | PageContext,
         intent: ExtractionIntent,
     ) -> ExtractionResult:
         raise NotImplementedError

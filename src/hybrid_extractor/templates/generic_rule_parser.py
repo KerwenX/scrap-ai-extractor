@@ -13,6 +13,7 @@ from ..models import (
     TemplateMatch,
 )
 from ..rule_runtime import RuleRuntime
+from ..rule_runtime import PageContext
 from .base import BaseTemplateParser
 
 
@@ -56,7 +57,7 @@ class GenericRuleTemplateParser(BaseTemplateParser):
     def extract(
         self,
         request: ExtractionRequest,
-        soup: BeautifulSoup,
+        soup: BeautifulSoup | PageContext,
         intent: ExtractionIntent,
     ) -> ExtractionResult:
         if not self.manifest.extraction_plan:

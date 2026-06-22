@@ -18,6 +18,7 @@ class TemplateService:
         template_store_dir: Path | None = None,
         template_candidate_dir: Path | None = None,
         include_builtin_templates: bool | None = None,
+        frozen_manifests: bool = False,
     ) -> None:
         self.template_dir = template_dir or TEMPLATE_DIR
         self.template_store_dir = template_store_dir or TEMPLATE_STORE_DIR
@@ -25,10 +26,12 @@ class TemplateService:
         if include_builtin_templates is None:
             include_builtin_templates = load_app_settings().builtin_templates_enabled
         self.include_builtin_templates = include_builtin_templates
+        self.frozen_manifests = frozen_manifests
         self.template_store_dir.mkdir(parents=True, exist_ok=True)
         self.template_candidate_dir.mkdir(parents=True, exist_ok=True)
         self._manifest_cache: list[TemplateManifest] | None = None
         self._manifest_cache_signature: tuple | None = None
+        self._manifest_cache_by_id: dict[str, TemplateManifest] = {}
         self._candidate_cache: list[TemplateCandidate] | None = None
         self._candidate_cache_signature: tuple | None = None
 
@@ -38,7 +41,9 @@ class TemplateService:
             if self.include_builtin_templates
             else (self.template_store_dir,)
         )
-        signature = self._directory_signature(directories)
+        signature = None if self.frozen_manifests else self._directory_signature(directories)
+        if self.frozen_manifests and self._manifest_cache is not None:
+            return list(self._manifest_cache)
         if self._manifest_cache is not None and signature == self._manifest_cache_signature:
             return list(self._manifest_cache)
 
@@ -53,6 +58,7 @@ class TemplateService:
                 manifests.append(self._normalize_manifest(TemplateManifest.model_validate(data)))
         self._manifest_cache = manifests
         self._manifest_cache_signature = signature
+        self._manifest_cache_by_id = {manifest.template_id: manifest for manifest in manifests}
         return manifests
 
     def load_candidates(self) -> List[TemplateCandidate]:
@@ -71,10 +77,8 @@ class TemplateService:
         return candidates
 
     def get_manifest(self, template_id: str) -> Optional[TemplateManifest]:
-        for manifest in self.load_manifests():
-            if manifest.template_id == template_id:
-                return manifest
-        return None
+        self.load_manifests()
+        return self._manifest_cache_by_id.get(template_id)
 
     def get_candidate(self, candidate_id: str) -> Optional[TemplateCandidate]:
         path = self.template_candidate_dir / f"{candidate_id}.json"
@@ -635,6 +639,7 @@ class TemplateService:
     def _invalidate_manifest_cache(self) -> None:
         self._manifest_cache = None
         self._manifest_cache_signature = None
+        self._manifest_cache_by_id = {}
 
     def _invalidate_candidate_cache(self) -> None:
         self._candidate_cache = None

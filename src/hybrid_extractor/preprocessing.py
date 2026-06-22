@@ -3,11 +3,15 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 
-def clean_html(raw_html: str) -> str:
+def build_clean_soup(raw_html: str) -> BeautifulSoup:
     soup = BeautifulSoup(raw_html, "html.parser")
     for tag in soup(["script", "style", "noscript", "svg", "iframe"]):
         tag.decompose()
-    return str(soup)
+    return soup
+
+
+def clean_html(raw_html: str) -> str:
+    return str(build_clean_soup(raw_html))
 
 
 def build_soup(raw_html: str) -> BeautifulSoup:

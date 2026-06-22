@@ -199,6 +199,8 @@ class BatchExtractionRequest(BaseModel):
     jsonl_content: str = ""
     user_prompt: str
     output_jsonl_path: str = ""
+    max_workers: int = 1
+    sample_limit: int = 20
 
 
 class BatchExtractionResponse(BaseModel):
@@ -209,3 +211,5 @@ class BatchExtractionResponse(BaseModel):
     success_count: int = 0
     failed_count: int = 0
     results: List[Dict[str, Any]] = Field(default_factory=list)
+    sample_errors: List[Dict[str, Any]] = Field(default_factory=list)
+    sample_successes: List[Dict[str, Any]] = Field(default_factory=list)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from bs4 import BeautifulSoup
@@ -12,11 +13,31 @@ from .preprocessing import extract_page_description, normalize_text
 CodeRuleHandler = Callable[[BeautifulSoup, FieldRule], Any]
 
 
+@dataclass
+class PageContext:
+    soup: BeautifulSoup
+    full_text: str
+    description: str
+    css_cache: dict[str, list] = field(default_factory=dict)
+    label_value_index: dict[str, list[str]] = field(default_factory=dict)
+    section_tab_map: dict[str, str] = field(default_factory=dict)
+    section_map: dict[str, str] = field(default_factory=dict)
+
+
 class RuleRuntime:
     def __init__(self, code_handlers: dict[str, CodeRuleHandler] | None = None) -> None:
         self.code_handlers = code_handlers or {}
+        self._regex_cache: dict[str, re.Pattern[str]] = {}
 
-    def execute(self, soup: BeautifulSoup, plan: ExtractionPlan) -> ExtractionResult:
+    def build_page_context(self, soup: BeautifulSoup) -> PageContext:
+        return PageContext(
+            soup=soup,
+            full_text=normalize_text(soup.get_text("\n", strip=True)),
+            description=extract_page_description(soup),
+        )
+
+    def execute(self, soup: BeautifulSoup | PageContext, plan: ExtractionPlan) -> ExtractionResult:
+        context = soup if isinstance(soup, PageContext) else self.build_page_context(soup)
         data: dict[str, Any] = {}
         evidences: list[FieldEvidence] = []
 
@@ -26,7 +47,7 @@ class RuleRuntime:
             rule_id = None
 
             for selector in field_rule.selectors:
-                value = self._resolve_selector(soup, selector)
+                value = self._resolve_selector(context, selector)
                 if self._has_value(value):
                     source = f"{selector.kind}:{selector.value}"
                     rule_id = f"{field_rule.field_name}:{selector.kind}"
@@ -46,9 +67,10 @@ class RuleRuntime:
 
         return ExtractionResult(data=data, evidences=evidences)
 
-    def _resolve_selector(self, soup: BeautifulSoup, selector) -> Any:
+    def _resolve_selector(self, context: PageContext, selector) -> Any:
+        soup = context.soup
         if selector.kind == "css":
-            nodes = soup.select(selector.value)
+            nodes = self._select_nodes(context, selector.value)
             return self._extract_nodes(nodes, selector.attr, selector.many)
 
         if selector.kind == "id":
@@ -59,13 +81,12 @@ class RuleRuntime:
 
         if selector.kind == "meta":
             if selector.value == "description":
-                return extract_page_description(soup)
+                return context.description
             node = soup.find("meta", attrs={"name": selector.value})
             return node.get("content", "") if node else None
 
         if selector.kind == "text_pattern":
-            text = normalize_text(soup.get_text("\n", strip=True))
-            match = re.search(selector.value, text)
+            match = self._compile_regex(selector.value).search(context.full_text)
             if not match:
                 return None
             if match.groups():
@@ -73,17 +94,16 @@ class RuleRuntime:
             return match.group(0)
 
         if selector.kind == "section_tab":
-            tab_map = self._build_section_tab_map(soup)
-            return tab_map.get(selector.value)
+            return self._build_section_tab_map(context).get(selector.value)
 
         if selector.kind == "label_value":
-            return self._extract_label_value(soup, selector.value, selector.many)
+            return self._extract_label_value(context, selector.value, selector.many)
 
         if selector.kind == "all_label_values":
-            return self._extract_all_label_values(soup)
+            return self._extract_all_label_values(context)
 
         if selector.kind == "all_sections":
-            return self._extract_all_sections(soup)
+            return self._extract_all_sections(context)
 
         if selector.kind == "code":
             handler = self.code_handlers.get(selector.value)
@@ -93,7 +113,18 @@ class RuleRuntime:
 
         return None
 
-    def _build_section_tab_map(self, soup: BeautifulSoup) -> dict[str, str]:
+    def _select_nodes(self, context: PageContext, selector: str) -> list:
+        cached = context.css_cache.get(selector)
+        if cached is None:
+            cached = context.soup.select(selector)
+            context.css_cache[selector] = cached
+        return cached
+
+    def _build_section_tab_map(self, context: PageContext) -> dict[str, str]:
+        if context.section_tab_map:
+            return context.section_tab_map
+
+        soup = context.soup
         tabs = [
             normalize_text(node.get_text())
             for node in soup.select(".van-tabs__nav [role='tab'] .van-tab__text")
@@ -103,6 +134,7 @@ class RuleRuntime:
         result: dict[str, str] = {}
         for tab, pane in zip(tabs, panes):
             result[tab] = normalize_text(pane.get_text("\n", strip=True))
+        context.section_tab_map = result
         return result
 
     def _extract_nodes(self, nodes, attr: str, many: bool) -> Any:
@@ -118,111 +150,93 @@ class RuleRuntime:
             return values
         return values[0] if values else None
 
-    def _extract_label_value(self, soup: BeautifulSoup, label: str, many: bool) -> Any:
-        normalized_label = normalize_text(label)
+    def _extract_label_value(self, context: PageContext, label: str, many: bool) -> Any:
+        normalized_label = normalize_text(label).replace(" ", "")
         if not normalized_label:
             return None
 
-        values: list[str] = []
-
-        # Pattern: <div class="item-container"><div class="item-title-container">标签</div><span class="item-content">值</span></div>
-        for container in soup.select(".item-container"):
-            title_node = container.select_one(".item-title-container")
-            value_node = container.select_one(".item-content")
-            if not title_node or not value_node:
-                continue
-            title_text = normalize_text(title_node.get_text(" ", strip=True)).replace(" ", "")
-            if title_text != normalized_label.replace(" ", ""):
-                continue
-            extracted = normalize_text(value_node.get_text(" ", strip=True))
-            if extracted:
-                values.append(extracted)
-
-        if values:
-            unique_values = []
-            seen = set()
-            for value in values:
-                if value in seen:
-                    continue
-                seen.add(value)
-                unique_values.append(value)
-            if many:
-                return unique_values
-            return unique_values[0]
-
-        for node in soup.find_all(["td", "th", "dt", "dd", "span", "div", "label", "strong", "b"]):
-            node_text = normalize_text(node.get_text(" ", strip=True))
-            if node_text != normalized_label:
-                continue
-
-            extracted = self._extract_value_near_label(node)
-            if not extracted:
-                continue
-            values.append(extracted)
-
-        unique_values = []
-        seen = set()
-        for value in values:
-            if value in seen:
-                continue
-            seen.add(value)
-            unique_values.append(value)
-
+        values = self._build_label_value_index(context).get(normalized_label, [])
         if many:
-            return unique_values
-        return unique_values[0] if unique_values else None
+            return list(values)
+        return values[0] if values else None
 
-    def _extract_all_label_values(self, soup: BeautifulSoup) -> dict[str, str]:
-        results: dict[str, str] = {}
+    def _extract_all_label_values(self, context: PageContext) -> dict[str, str]:
+        return {
+            key: values[0]
+            for key, values in self._build_label_value_index(context).items()
+            if values
+        }
 
-        for container in soup.select(".item-container"):
+    def _build_label_value_index(self, context: PageContext) -> dict[str, list[str]]:
+        if context.label_value_index:
+            return context.label_value_index
+
+        soup = context.soup
+        results: dict[str, list[str]] = {}
+
+        for container in self._select_nodes(context, ".item-container"):
             title_node = container.select_one(".item-title-container")
             value_node = container.select_one(".item-content")
             if not title_node or not value_node:
                 continue
             title = normalize_text(title_node.get_text(" ", strip=True)).replace(" ", "")
             value = normalize_text(value_node.get_text(" ", strip=True))
-            if title and value and title not in results:
-                results[title] = value
+            if title and value:
+                results.setdefault(title, []).append(value)
 
-        for row in soup.select("tr"):
+        for row in self._select_nodes(context, "tr"):
             cells = row.find_all(["th", "td"], recursive=False)
             if len(cells) < 2:
                 continue
-            label = normalize_text(cells[0].get_text(" ", strip=True)).rstrip(":：")
+            label = normalize_text(cells[0].get_text(" ", strip=True)).rstrip(":：").replace(" ", "")
             value = normalize_text(cells[1].get_text(" ", strip=True))
-            if label and value and label not in results:
-                results[label] = value
+            if label and value:
+                results.setdefault(label, []).append(value)
 
-        for dl in soup.select("dl"):
+        for dl in self._select_nodes(context, "dl"):
             terms = dl.find_all("dt", recursive=False)
             descriptions = dl.find_all("dd", recursive=False)
             for term, description in zip(terms, descriptions):
-                label = normalize_text(term.get_text(" ", strip=True)).rstrip(":：")
+                label = normalize_text(term.get_text(" ", strip=True)).rstrip(":：").replace(" ", "")
                 value = normalize_text(description.get_text(" ", strip=True))
-                if label and value and label not in results:
-                    results[label] = value
+                if label and value:
+                    results.setdefault(label, []).append(value)
 
-        return results
+        for node in soup.find_all(["td", "th", "dt", "dd", "span", "div", "label", "strong", "b"]):
+            node_text = normalize_text(node.get_text(" ", strip=True)).replace(" ", "")
+            if not node_text:
+                continue
+            value = self._extract_value_near_label(node)
+            if value and value.replace(" ", "") != node_text:
+                results.setdefault(node_text, []).append(value)
 
-    def _extract_all_sections(self, soup: BeautifulSoup) -> dict[str, str]:
+        context.label_value_index = {
+            key: list(dict.fromkeys(values))
+            for key, values in results.items()
+            if values
+        }
+        return context.label_value_index
+
+    def _extract_all_sections(self, context: PageContext) -> dict[str, str]:
+        if context.section_map:
+            return context.section_map
+
         results: dict[str, str] = {}
 
-        for container in soup.select(".public-container"):
+        for container in self._select_nodes(context, ".public-container"):
             title = self._extract_container_title(container)
             content = self._extract_container_content(container)
             if title and content and title not in results:
                 results[title] = content
 
-        if results:
-            return results
+        if not results:
+            for container in self._select_nodes(context, "section, article, .section, .content-section"):
+                title = self._extract_container_title(container)
+                content = self._extract_container_content(container)
+                if title and content and title not in results:
+                    results[title] = content
 
-        for container in soup.select("section, article, .section, .content-section"):
-            title = self._extract_container_title(container)
-            content = self._extract_container_content(container)
-            if title and content and title not in results:
-                results[title] = content
-
+        context.section_map = results
         return results
 
     def _extract_value_near_label(self, node) -> str | None:
@@ -297,9 +311,9 @@ class RuleRuntime:
 
         if op == "strip_cn_punctuation":
             if isinstance(value, str):
-                return value.strip("，。；：: ")
+                return value.strip("，。；： ")
             if isinstance(value, list):
-                return [item.strip("，。；：: ") for item in value if isinstance(item, str)]
+                return [item.strip("，。；： ") for item in value if isinstance(item, str)]
 
         if op == "split_cn_list":
             if isinstance(value, str):
@@ -309,7 +323,7 @@ class RuleRuntime:
                     .replace("及", "，")
                     .replace("等", "")
                 )
-                return [item.strip("，。 ") for item in normalized.split("，") if item.strip("，。 ")]
+                return [item.strip(" ，。") for item in normalized.split("，") if item.strip(" ，。")]
 
         if op == "unique":
             if isinstance(value, list):
@@ -335,7 +349,7 @@ class RuleRuntime:
             pattern = str(args.get("pattern", "")).strip()
             group = int(args.get("group", 1))
             if pattern and isinstance(value, str):
-                match = re.search(pattern, value)
+                match = self._compile_regex(pattern).search(value)
                 if not match:
                     return None
                 if match.groups():
@@ -349,9 +363,10 @@ class RuleRuntime:
             pattern = str(args.get("pattern", "")).strip()
             repl = str(args.get("repl", ""))
             if pattern and isinstance(value, str):
-                return re.sub(pattern, repl, value)
+                return self._compile_regex(pattern).sub(repl, value)
             if pattern and isinstance(value, list):
-                return [re.sub(pattern, repl, item) if isinstance(item, str) else item for item in value]
+                regex = self._compile_regex(pattern)
+                return [regex.sub(repl, item) if isinstance(item, str) else item for item in value]
 
         if op == "join":
             separator = str(args.get("separator", ", "))
@@ -370,7 +385,7 @@ class RuleRuntime:
 
         if op == "to_int":
             if isinstance(value, str):
-                match = re.search(r"-?\d+", value.replace(",", ""))
+                match = self._compile_regex(r"-?\d+").search(value.replace(",", ""))
                 if match:
                     return int(match.group(0))
             if isinstance(value, (int, float)):
@@ -378,7 +393,7 @@ class RuleRuntime:
 
         if op == "to_float":
             if isinstance(value, str):
-                match = re.search(r"-?\d+(?:\.\d+)?", value.replace(",", ""))
+                match = self._compile_regex(r"-?\d+(?:\.\d+)?").search(value.replace(",", ""))
                 if match:
                     return float(match.group(0))
             if isinstance(value, (int, float)):
@@ -394,3 +409,10 @@ class RuleRuntime:
         if isinstance(value, (list, tuple, dict, set)):
             return len(value) > 0
         return True
+
+    def _compile_regex(self, pattern: str) -> re.Pattern[str]:
+        cached = self._regex_cache.get(pattern)
+        if cached is None:
+            cached = re.compile(pattern)
+            self._regex_cache[pattern] = cached
+        return cached

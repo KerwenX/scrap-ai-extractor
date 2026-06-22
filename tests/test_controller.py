@@ -301,7 +301,8 @@ def test_controller_extract_batch_requires_url_and_returns_output_file(tmp_path)
         }
     )
     assert payload["total_count"] == 1
-    assert payload["results"][0]["url"] == "https://example.com/1"
+    assert payload["results"] == []
+    assert payload["sample_errors"][0]["url"] == "https://example.com/1"
 
     try:
         controller.extract_batch(
