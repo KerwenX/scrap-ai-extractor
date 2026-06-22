@@ -113,6 +113,18 @@ tests/
 local_medical_html_extraction.py
 ```
 
+## 模板资产同步约定
+
+- `data/template_store/`：当前本地正式模板仓，会随项目代码一起提交到 GitHub
+- `data/template_candidates/`：运行期候选模板，不默认作为稳定交付资产
+- `config/templates/`：仓库内置模板样例，可通过配置决定是否参与运行时加载
+
+当前约定是：
+
+- 正式模板以 `data/template_store/` 为主
+- 以后同步 GitHub 时，本地正式模板会一并同步
+- 废弃版本如果仍保留在本地模板仓中，也会作为历史模板一并保留，方便回溯
+
 ## 安装
 
 ```powershell
@@ -125,6 +137,25 @@ pip install -e .
 ```powershell
 pip install -e .[dev]
 ```
+
+## 依赖说明
+
+当前项目的 LLM fallback 仍然依赖 `scrapegraphai`：
+
+- Python 依赖声明见 [pyproject.toml](G:\code\Extractor\scrap-ai-extractor\pyproject.toml)
+- 运行时代码入口见 [src/hybrid_extractor/extractors/llm.py](G:\code\Extractor\scrap-ai-extractor\src\hybrid_extractor\extractors\llm.py)
+
+当前本机环境里，`scrapegraphai` 实际是从本地目录 [Scrapegraph-ai](G:\code\Extractor\scrap-ai-extractor\Scrapegraph-ai) 加载的，而不是完全独立于仓库目录运行。
+
+这意味着：
+
+- 现在**不能直接删除** `Scrapegraph-ai/`
+- 如果后续要删除它，必须先把 LLM fallback 改成只依赖已安装包，或者完成对该能力的替换
+
+参考关系说明：
+
+- 本项目专注“网页解析与模板化抽取”
+- `Scrapegraph-ai` 目前只作为 LLM 抽取底座依赖被引用
 
 ## 配置
 

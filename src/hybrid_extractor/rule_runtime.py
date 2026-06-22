@@ -37,6 +37,8 @@ class RuleRuntime:
 
             value = self._apply_postprocess(value, field_rule)
             data[field_rule.field_name] = value
+            if field_rule.merge_output and isinstance(value, dict):
+                self._merge_mapping(data, value)
             if self._has_value(value):
                 evidences.append(
                     FieldEvidence(field_name=field_rule.field_name, source=source, rule_id=rule_id)
@@ -76,6 +78,12 @@ class RuleRuntime:
 
         if selector.kind == "label_value":
             return self._extract_label_value(soup, selector.value, selector.many)
+
+        if selector.kind == "all_label_values":
+            return self._extract_all_label_values(soup)
+
+        if selector.kind == "all_sections":
+            return self._extract_all_sections(soup)
 
         if selector.kind == "code":
             handler = self.code_handlers.get(selector.value)
@@ -164,6 +172,59 @@ class RuleRuntime:
             return unique_values
         return unique_values[0] if unique_values else None
 
+    def _extract_all_label_values(self, soup: BeautifulSoup) -> dict[str, str]:
+        results: dict[str, str] = {}
+
+        for container in soup.select(".item-container"):
+            title_node = container.select_one(".item-title-container")
+            value_node = container.select_one(".item-content")
+            if not title_node or not value_node:
+                continue
+            title = normalize_text(title_node.get_text(" ", strip=True)).replace(" ", "")
+            value = normalize_text(value_node.get_text(" ", strip=True))
+            if title and value and title not in results:
+                results[title] = value
+
+        for row in soup.select("tr"):
+            cells = row.find_all(["th", "td"], recursive=False)
+            if len(cells) < 2:
+                continue
+            label = normalize_text(cells[0].get_text(" ", strip=True)).rstrip(":：")
+            value = normalize_text(cells[1].get_text(" ", strip=True))
+            if label and value and label not in results:
+                results[label] = value
+
+        for dl in soup.select("dl"):
+            terms = dl.find_all("dt", recursive=False)
+            descriptions = dl.find_all("dd", recursive=False)
+            for term, description in zip(terms, descriptions):
+                label = normalize_text(term.get_text(" ", strip=True)).rstrip(":：")
+                value = normalize_text(description.get_text(" ", strip=True))
+                if label and value and label not in results:
+                    results[label] = value
+
+        return results
+
+    def _extract_all_sections(self, soup: BeautifulSoup) -> dict[str, str]:
+        results: dict[str, str] = {}
+
+        for container in soup.select(".public-container"):
+            title = self._extract_container_title(container)
+            content = self._extract_container_content(container)
+            if title and content and title not in results:
+                results[title] = content
+
+        if results:
+            return results
+
+        for container in soup.select("section, article, .section, .content-section"):
+            title = self._extract_container_title(container)
+            content = self._extract_container_content(container)
+            if title and content and title not in results:
+                results[title] = content
+
+        return results
+
     def _extract_value_near_label(self, node) -> str | None:
         next_sibling = self._next_element_sibling(node)
         if next_sibling:
@@ -196,6 +257,27 @@ class RuleRuntime:
         while sibling is not None and not getattr(sibling, "name", None):
             sibling = sibling.next_sibling
         return sibling
+
+    def _extract_container_title(self, node) -> str:
+        title_node = node.select_one(
+            "h2, h3, h4, .section-title, .title, .item-title, .title-line p, .title p"
+        )
+        if not title_node:
+            return ""
+        return normalize_text(title_node.get_text(" ", strip=True))
+
+    def _extract_container_content(self, node) -> str:
+        content_node = node.select_one(".item-content, .content, .section-content")
+        target = content_node or node
+        return normalize_text(target.get_text("\n", strip=True))
+
+    def _merge_mapping(self, data: dict[str, Any], mapping: dict[str, Any]) -> None:
+        for key, value in mapping.items():
+            if not key or not self._has_value(value):
+                continue
+            existing = data.get(key)
+            if not self._has_value(existing):
+                data[key] = value
 
     def _apply_postprocess(self, value: Any, field_rule: FieldRule) -> Any:
         current = value

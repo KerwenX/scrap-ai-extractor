@@ -33,6 +33,7 @@ class LlmSettings(BaseModel):
 
 class AppSettings(BaseModel):
     llm: LlmSettings = Field(default_factory=LlmSettings)
+    builtin_templates_enabled: bool = False
 
 
 def ensure_app_config_template() -> None:
@@ -64,4 +65,13 @@ def load_app_settings() -> AppSettings:
             ),
         }
     )
-    return settings.model_copy(update={"llm": llm})
+    builtin_templates_enabled = os.getenv(
+        "SCRAPE_BUILTIN_TEMPLATES_ENABLED",
+        str(settings.builtin_templates_enabled).lower(),
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    return settings.model_copy(
+        update={
+            "llm": llm,
+            "builtin_templates_enabled": builtin_templates_enabled,
+        }
+    )

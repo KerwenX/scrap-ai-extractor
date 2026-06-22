@@ -1,0 +1,100 @@
+{
+  "template_id": "ajcass_com_detail_page_detail_page_c5d7b04b_v1",
+  "parser_key": "generic:rule",
+  "site_id": "erj.ajcass.com",
+  "site_name": "erj.ajcass.com",
+  "page_type": "detail_page",
+  "scenario": "detail_page",
+  "version": "v1",
+  "template_key": "ajcass_com_detail_page_detail_page_c5d7b04b",
+  "url_pattern": "ajcass.com|/|",
+  "url_pattern_hash": "c5d7b04b",
+  "lifecycle_status": "deprecated",
+  "active": false,
+  "fingerprint": {
+    "dom_signature": "4a6b30b0aa116640",
+    "headings": [],
+    "key_ids": [
+      "app",
+      "immersive-translate-browser-popup"
+    ],
+    "key_classes": [
+      "banner",
+      "btm",
+      "btn",
+      "btn1",
+      "code",
+      "content",
+      "content-left",
+      "content-right",
+      "contribute",
+      "contribute-btn",
+      "contribute-title",
+      "el-image",
+      "el-image__inner",
+      "el-image__preview",
+      "footer",
+      "honor",
+      "honor-title",
+      "link",
+      "link-list",
+      "list-title",
+      "message",
+      "nav",
+      "time",
+      "tip",
+      "title",
+      "v-s-s",
+      "v-s-s_item"
+    ]
+  },
+  "required_fields": [
+    "标题"
+  ],
+  "extraction_plan": {
+    "mode": "declarative",
+    "fields": [
+      {
+        "field_name": "标题",
+        "selectors": [
+          {
+            "kind": "label_value",
+            "value": "首页 > 详情页",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      },
+      {
+        "field_name": "摘要",
+        "selectors": [
+          {
+            "kind": "label_value",
+            "value": "【内容提要】",
+            "attr": "text",
+            "many": false
+          }
+        ],
+        "postprocess": [
+          {
+            "op": "strip",
+            "args": {}
+          }
+        ],
+        "fallback_value": null,
+        "merge_output": false
+      }
+    ],
+    "code_entrypoint": ""
+  },
+  "notes": "Auto-solidified from a successful LLM fallback candidate.",
+  "source_candidate_id": "f4ddfafa-d14b-4aec-a325-fe98f0084159"
+}
