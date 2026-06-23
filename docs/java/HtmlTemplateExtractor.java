@@ -14,7 +14,7 @@ public class HtmlTemplateExtractor {
     private final TemplateManifestRepository manifestRepository;
 
     public HtmlTemplateExtractor() {
-        this(new ObjectMapper());
+        this(TemplateManifestRepository.buildDefaultObjectMapper());
     }
 
     public HtmlTemplateExtractor(ObjectMapper objectMapper) {

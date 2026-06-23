@@ -100,6 +100,39 @@ Java 版本按 1.8：
 </properties>
 ```
 
+## 4.1 字段映射规则必须显式配置
+
+Python 生成的模板 JSON 使用的是 `snake_case`，例如：
+
+- `template_id`
+- `parser_key`
+- `site_id`
+- `page_type`
+- `required_fields`
+- `extraction_plan`
+
+而 Java 类字段通常写成驼峰，例如：
+
+- `templateId`
+- `parserKey`
+- `siteId`
+- `pageType`
+- `requiredFields`
+- `extractionPlan`
+
+如果 Java 端不显式做映射，就会出现这种报错：
+
+```text
+Unrecognized field "template_id"
+```
+
+因此当前 Java 运行时代码已经做了两层保险：
+
+1. `TemplateContract.java` 上通过 `@JsonProperty("template_id")` 这类注解显式绑定
+2. `ObjectMapper` 统一设置 `PropertyNamingStrategies.SNAKE_CASE`
+
+建议你在复制到自己工程时，保留这两层，不要依赖默认命名推断。
+
 ## 5. 模板目录建议
 
 ### 5.1 生产环境推荐：外部目录

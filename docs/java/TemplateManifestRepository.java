@@ -1,4 +1,5 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
@@ -26,11 +27,17 @@ public class TemplateManifestRepository {
     private final ObjectMapper objectMapper;
 
     public TemplateManifestRepository() {
-        this(new ObjectMapper());
+        this(buildDefaultObjectMapper());
     }
 
     public TemplateManifestRepository(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+    }
+
+    public static ObjectMapper buildDefaultObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        return mapper;
     }
 
     public TemplateContract.TemplateManifest loadManifest(Path path) throws IOException {
