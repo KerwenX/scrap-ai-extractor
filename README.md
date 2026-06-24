@@ -1,99 +1,106 @@
-# 混合网页解析器
+<div align="center">
 
-这是一个只专注于“网页解析”的项目，不负责爬虫抓取。
+# Hybrid Web Extractor
 
-输入：
+### 面向大规模网页结构化抽取的模板化解析系统
 
-- `url`
-- `raw_html`
-- `user_prompt`
+不做爬虫，只专注网页解析。  
+输入 `URL + HTML`，输出结构化结果；首次可走 LLM，后续优先复用正式模板 `JSON + DSL`。
 
-输出：
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square)](./tests)
+[![Templates](https://img.shields.io/badge/template%20engine-JSON%20%2B%20DSL-0f766e?style=flat-square)](./docs/template-design.md)
+[![Java Runtime](https://img.shields.io/badge/Java-8%2B-orange?style=flat-square&logo=openjdk&logoColor=white)](./docs/java-runtime.md)
+[![GitHub stars](https://img.shields.io/github/stars/KerwenX/scrap-ai-extractor?style=flat-square)](https://github.com/KerwenX/scrap-ai-extractor)
 
-- 结构化抽取结果
-- 命中的正式模板信息
-- 校验结果
-- 调试链路信息
+</div>
 
-项目目标是把“首次依赖 LLM 的抽取”逐步沉淀成“可复用、可迁移、可版本化”的正式模板 `JSON + DSL`。
+---
 
-## 当前核心策略
+## 目录
 
-### 1. 不再从 HTML 推断 URL
+- [项目定位](#项目定位)
+- [核心能力](#核心能力)
+- [系统流程](#系统流程)
+- [项目结构](#项目结构)
+- [快速开始](#快速开始)
+- [配置 LLM](#配置-llm)
+- [使用方式](#使用方式)
+- [模板机制](#模板机制)
+- [API 概览](#api-概览)
+- [Java 运行时](#java-运行时)
+- [依赖说明](#依赖说明)
+- [测试](#测试)
+- [文档](#文档)
 
-当前系统**不会**再从 HTML 内容里扫描 `http://...` 或 `https://...` 来推断站点。
+## 项目定位
 
-原因很简单：
+这个项目的目标不是“抓网页”，而是“解析网页”。
 
-- HTML 里的 URL 很多是脚本、SVG、静态资源、第三方链接
-- 它们不能代表当前页面真实来源
-- 用这些噪声 URL 反推站点，会导致模板匹配被严重干扰
+它聚焦的是这样一类场景：
 
-现在的规则是：
+- 你已经有页面 URL 与 HTML 源码
+- 你希望用户通过自然语言描述抽取目标
+- 首次遇到新页面结构时，希望借助 LLM 理解页面并生成抽取方案
+- 同站点、同结构页面后续批量处理时，希望优先复用固化后的模板，避免反复调用 LLM
 
-- 如果传了 `url`，站点识别只看这个 `url`
-- 如果没传 `url`，站点记为 `unknown`
+一句话概括：
 
-### 2. 无 URL 时不再直接失败
+> 用 LLM 完成首次理解，用正式模板承担后续规模化生产解析。
 
-如果没有传 `url`：
+## 核心能力
 
-- 系统不会再尝试从 HTML 猜站点
-- 也不会直接放弃模板匹配
-- 而是对正式模板库做运行时 DSL 评分匹配
+### 1. 混合解析
 
-也就是说：
+- `auto` 模式：先尝试正式模板，失败后再回退到 LLM
+- `template_only` 模式：只允许模板解析，不触发 LLM
 
-- 有 URL：先按站点和 URL pattern 缩小范围，再评分
-- 无 URL：直接对正式模板做评分匹配
+### 2. 正式模板 `JSON + DSL`
 
-### 3. 只有真正命中过旧模板，才允许升级旧模板
+- 模板不是手写站点 parser
+- 模板记录的是字段定位规则、必要字段、页面指纹、URL pattern 等元数据
+- 模板可迁移、可版本化、可在其他机器直接复用
 
-当前模板闭环已经收紧：
+### 3. 首次成功后自动固化
 
-- 如果本次请求先命中了旧模板，但抽取校验失败，随后 LLM fallback 成功
-  - 这时允许把候选模板升级到该旧模板家族
-- 如果本次请求**根本没有命中任何旧模板**
-  - 那么 LLM fallback 成功后，只能创建新模板
-  - 不允许再去覆盖现有模板家族
+- 第一次 LLM 解析成功后，可沉淀为候选模板
+- 候选模板可晋升为正式模板
+- 之后再次遇到相同结构页面时，优先直接命中模板
 
-这避免了过去那种反直觉情况：
+### 4. 面向批量场景的模板匹配
 
-- 运行时没命中旧模板
-- 结果却拿新页面去覆盖旧模板版本
+- URL 参与模板检索，但不直接决定模板是否命中
+- 真正决定模板是否可用的，是模板在当前 HTML 上的实际抽取效果
+- 无 URL 时也支持扫库匹配正式模板
 
-### 4. 模板最终是否命中，取决于“运行结果”
+### 5. 轻量 Web UI
 
-模板不是靠 URL 或指纹直接拍板的，而是：
+- 本地启动即可使用
+- 支持单页解析、批量解析、模板查看、候选模板管理、正式模板管理
 
-1. 先做候选召回
-2. 再把候选模板真正跑到当前 HTML 上
-3. 按抽取效果评分
-4. 选择得分最高且通过门槛的模板
+### 6. Java 运行时
 
-主要评分因子：
+- Python 项目负责模板生成与固化
+- Java 项目负责消费正式模板并执行解析
+- 已提供 Java 8 可直接复制使用的运行时代码与诊断工具
 
-- `required_hit_rate`
-- `selector_hit_rate`
-- `fingerprint_score`
-- `classification_affinity`
-- `site_affinity`
-- `url_pattern_affinity`
+## 系统流程
 
-所以 URL 的作用只是“帮助检索模板”，不是最终决定用哪个模板。
-
-### 5. 模板匹配已改为“两阶段”
-
-当前不会再对召回到的所有模板都执行完整 DSL 抽取。
-
-匹配流程现在是：
-
-1. 先按 `site / url_pattern_hash / scenario / fingerprint` 做索引召回
-2. 先计算便宜分数
-3. 只对 Top-K 候选执行真正的模板抽取评分
-4. 高置信命中时提前结束，不再继续扫描剩余模板
-
-这使大规模模板仓下的匹配复杂度明显下降。
+```mermaid
+flowchart TD
+    A["输入 URL + HTML + 用户抽取需求"] --> B["页面分类 / 指纹构建 / URL Pattern 归一化"]
+    B --> C["正式模板召回"]
+    C --> D["Cheap Score 排序"]
+    D --> E["Top-K 模板真实执行评分"]
+    E --> F{"命中正式模板?"}
+    F -->|是| G["确定性解析返回结果"]
+    F -->|否| H{"允许 LLM 回退?"}
+    H -->|否| I["返回模板未命中"]
+    H -->|是| J["LLM 解析"]
+    J --> K["候选模板生成"]
+    K --> L["可晋升为正式模板"]
+    L --> M["后续同结构页面直接复用模板"]
+```
 
 ## 项目结构
 
@@ -102,9 +109,9 @@ config/
   app_config.template.json
   templates/
 data/
-  template_store/
-  template_candidates/
-  batch_results/
+  template_store/          # 正式模板仓
+  template_candidates/     # 运行时候选模板
+  batch_results/           # 批量解析结果
 docs/
   architecture.md
   template-design.md
@@ -116,8 +123,9 @@ scripts/
 src/hybrid_extractor/
   controllers/
   services/
-  templates/
   extractors/
+  templates/
+  api_server.py
   engine.py
   rule_runtime.py
   template_registry.py
@@ -126,60 +134,53 @@ tests/
 local_medical_html_extraction.py
 ```
 
-## 模板资产同步约定
+## 快速开始
 
-- `data/template_store/`：当前本地正式模板仓，会随项目代码一起提交到 GitHub
-- `data/template_candidates/`：运行期候选模板，不默认作为稳定交付资产
-- `config/templates/`：仓库内置模板样例，可通过配置决定是否参与运行时加载
-
-当前约定是：
-
-- 正式模板以 `data/template_store/` 为主
-- 正式模板按站点分目录存储，例如 `data/template_store/m_dayi_org_cn/...`
-- 以后同步 GitHub 时，本地正式模板会一并同步
-- 废弃版本如果仍保留在本地模板仓中，也会作为历史模板一并保留，方便回溯
-
-## 安装
+### 1. 安装
 
 ```powershell
 cd G:\code\Extractor\scrap-ai-extractor
 pip install -e .
 ```
 
-如果需要运行测试：
+如需运行测试：
 
 ```powershell
 pip install -e .[dev]
 ```
 
-## 依赖说明
-
-当前项目的 LLM fallback 仍然依赖 `scrapegraphai`：
-
-- Python 依赖声明见 [pyproject.toml](G:\code\Extractor\scrap-ai-extractor\pyproject.toml)
-- 运行时代码入口见 [src/hybrid_extractor/extractors/llm.py](G:\code\Extractor\scrap-ai-extractor\src\hybrid_extractor\extractors\llm.py)
-
-当前本机环境里，`scrapegraphai` 实际是从本地目录 [Scrapegraph-ai](G:\code\Extractor\scrap-ai-extractor\Scrapegraph-ai) 加载的，而不是完全独立于仓库目录运行。
-
-这意味着：
-
-- 现在**不能直接删除** `Scrapegraph-ai/`
-- 如果后续要删除它，必须先把 LLM fallback 改成只依赖已安装包，或者完成对该能力的替换
-
-参考关系说明：
-
-- 本项目专注“网页解析与模板化抽取”
-- `Scrapegraph-ai` 目前只作为 LLM 抽取底座依赖被引用
-
-## 配置
-
-先复制配置模板：
+### 2. 复制配置文件
 
 ```powershell
 Copy-Item .\config\app_config.template.json .\config\app_config.json
 ```
 
-然后编辑 `config/app_config.json`：
+### 3. 启动本地 Web UI
+
+```powershell
+.\scripts\run_ui.ps1
+```
+
+默认地址：
+
+- UI: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
+常用命令：
+
+```powershell
+.\scripts\run_ui.ps1
+.\scripts\run_ui.ps1 -Status
+.\scripts\run_ui.ps1 -Stop
+.\scripts\stop_ui.ps1
+```
+
+## 配置 LLM
+
+`config/app_config.json` 仅作为本地配置文件使用，已加入 `.gitignore`。  
+正式提交到仓库的是配置模板 `config/app_config.template.json`。
+
+### DeepSeek 模式
 
 ```json
 {
@@ -198,17 +199,9 @@ Copy-Item .\config\app_config.template.json .\config\app_config.json
 }
 ```
 
-说明：
+### OpenAI 兼容网关模式
 
-- `config/app_config.json` 已加入 `.gitignore`
-- 如果设置了环境变量 `LLM_API_KEY`，会覆盖配置文件中的 `api_key`
-- `llm.provider` 当前支持：
-  - `deepseek`：继续走 `ScrapeGraphAI + DeepSeek`
-  - `openai_compatible`：直接走 `requests + HTTP/SSE` 兼容接口
-- 如果你的兼容接口配置里填的是 `/v1` 根地址，系统会自动补成 `/v1/chat/completions`
-- 如果你直接填完整的 `/v1/chat/completions` 地址，系统会原样使用
-
-OpenAI 兼容接口示例：
+当前项目已适配基于 `requests + HTTP/SSE` 的兼容接口调用方式。
 
 ```json
 {
@@ -217,17 +210,23 @@ OpenAI 兼容接口示例：
     "api_key": "YOUR_INTERNAL_LLM_API_KEY",
     "base_url": "http://YOUR_HOST:30928/v1/chat/completions",
     "model": "glm47",
-    "max_tokens": 8192,
-    "temperature": 0.1,
+    "max_tokens": 65536,
+    "temperature": 0.6,
     "stream": true,
-    "request_timeout_seconds": 180
+    "request_timeout_seconds": 300
   }
 }
 ```
 
+说明：
+
+- 如果 `base_url` 配成 `http://host:port/v1`，系统会自动补成 `/v1/chat/completions`
+- 如果 `base_url` 已经是完整的 `/v1/chat/completions`，系统会原样使用
+- 环境变量 `LLM_API_KEY` 会覆盖配置文件中的 `llm.api_key`
+
 ## 使用方式
 
-### 1. 单条自动解析
+### 1. 单页自动解析
 
 ```powershell
 python .\local_medical_html_extraction.py `
@@ -236,31 +235,30 @@ python .\local_medical_html_extraction.py `
   --prompt "提取页面中的结构化信息"
 ```
 
-说明：
+特点：
 
-- 这是默认模式
-- 会先尝试命中正式模板
-- 未命中或模板校验失败时，允许回退到 LLM
+- 优先尝试正式模板
+- 未命中或校验失败时，可回退到 LLM
 
-### 2. 单条仅模板解析
+### 2. 单页仅模板解析
 
 ```powershell
 python .\local_medical_html_extraction.py `
   --html-path "E:\Documents\Downloads\页面.html" `
+  --url "https://example.com/page" `
   --prompt "提取页面中的结构化信息" `
   --template-only
 ```
 
-说明：
+特点：
 
-- 该模式**可以不传 URL**
-- 如果传了 URL，会优先按 URL pattern 缩小模板检索范围
-- 如果没传 URL，会直接对正式模板库做评分匹配
-- 该模式不会调用 LLM
+- 不调用 LLM
+- 适合批量模板复用验证
+- 无 URL 时也允许全库模板扫描匹配
 
 ### 3. 批量模板解析
 
-先准备一个 `jsonl` 文件，每行一条记录，例如：
+先准备一个 `jsonl` 文件，每行一条记录：
 
 ```json
 {"url":"https://example.com/paper/1","html_path":"E:\\pages\\paper1.html"}
@@ -272,7 +270,7 @@ python .\local_medical_html_extraction.py `
 - `html_path`
 - `file_path`
 
-执行：
+执行命令：
 
 ```powershell
 python .\local_medical_html_extraction.py `
@@ -281,74 +279,52 @@ python .\local_medical_html_extraction.py `
   --output-jsonl ".\data\batch_results\paper-results.jsonl"
 ```
 
-说明：
+特点：
 
 - 批量模式只走正式模板
-- 每条记录建议提供 `url`
 - 输出结果 JSONL 中会保留 `url`
-- 批量返回体不再携带全部 `results`，只返回统计信息和少量成功/失败样本
-- 可以通过 `max_workers` 启用多进程模板解析
+- 适合大规模低成本重复解析
 
-### 4. 启动本地 Web UI
-
-```powershell
-.\scripts\run_ui.ps1
-```
-
-默认地址：
-
-- UI: `http://127.0.0.1:8000/`
-- Health: `http://127.0.0.1:8000/health`
-
-常用脚本：
+### 4. CLI 帮助
 
 ```powershell
-.\scripts\run_ui.ps1
-.\scripts\run_ui.ps1 -Status
-.\scripts\run_ui.ps1 -Stop
-.\scripts\stop_ui.ps1
+python .\local_medical_html_extraction.py --help
 ```
 
-## 如何判断本次走的是模板还是 LLM
+## 模板机制
 
-看返回结果中的：
+### 模板存储
 
-- `extractor_type`
-  - `deterministic`：走正式模板
-  - `hybrid`：先命中模板，但校验失败后回退到 LLM
-  - `llm`：未命中模板，直接走 LLM
-  - `none`：`template_only` 模式下未命中任何模板
+- 正式模板：`data/template_store/`
+- 候选模板：`data/template_candidates/`
+- 正式模板按站点分目录存储，便于大规模管理与迁移
 
-还可以看：
+### 模板命中原则
 
-- `template_id`
-- `debug_trace.template_match`
-- `debug_trace.drift_report`
-- `debug_trace.run_mode`
+模板命中不是只靠 URL，也不是只靠指纹，而是分层判断：
 
-## AJCASS 论文页现状
+1. 先按 `site / url_pattern / scenario / fingerprint` 做候选召回
+2. 先做便宜评分 `cheap score`
+3. 只对 Top-K 候选模板执行真实抽取评分
+4. 根据字段命中率、必要字段通过率、选择器命中率等结果选出最佳模板
 
-当前 `erj.ajcass.com` 的论文详情页，已经沉淀为正式模板：
+因此：
 
-- `ajcass_com_detail_page_detail_page_c5d7b04b_v3`
+- URL 的作用主要是帮助检索模板
+- 真正决定是否命中的，是模板在当前 HTML 上的实际抽取表现
 
-这个模板当前可稳定抽取：
+### 模板闭环
 
-- `标题`
-- `作者`
-- `摘要`
-- `关键词`
-- `发表时间`
-- `稿件来源`
-- `期刊`
+- 没命中正式模板：允许走 LLM
+- LLM 成功：生成候选模板
+- 候选模板审核或晋升后：进入正式模板仓
+- 同结构页面下次优先走正式模板
 
-并且已经验证可以复用到以下同站点论文页：
+这意味着项目的长期目标是：
 
-- `中国专利的经济价值：测度、特征及有效性.html`
-- `外资开放式创新有助于“稳外资”目标的实现吗？——基于内外资价值链生产关联视角.html`
-- `新分类模式下的转移支付财力均等化效应再评估.html`
+> 让 LLM 主要服务于“首次理解”，让正式模板承担“后续规模化生产”。
 
-## API
+## API 概览
 
 核心接口：
 
@@ -365,27 +341,73 @@ python .\local_medical_html_extraction.py `
 - `POST /templates/{template_id}/status`
 - `DELETE /templates/{template_id}`
 - `POST /templates/delete-batch`
+
+候选模板接口：
+
 - `GET /template-candidates`
 - `GET /template-candidates/{candidate_id}`
 - `POST /template-candidates/{candidate_id}/promote`
 - `DELETE /template-candidates/{candidate_id}`
 
+## Java 运行时
+
+如果你的生产系统是 Java，只希望消费已经生成好的正式模板，而不需要在 Java 端做 LLM 推理，本项目已经提供了 Java 8 运行时代码。
+
+重点说明：
+
+- Python 端负责模板生成、候选模板晋升、模板仓维护
+- Java 端负责正式模板加载、模板匹配、模板执行、结果返回
+- 已提供缓存版模板服务主类与运行时诊断类
+
+建议从这里开始阅读：
+
+- [Java 运行时说明](./docs/java-runtime.md)
+- [TemplateExtractionApi.java](./docs/java/TemplateExtractionApi.java)
+- [CachedTemplateExtractionService.java](./docs/java/CachedTemplateExtractionService.java)
+- [TemplateRuntimeDiagnostics.java](./docs/java/TemplateRuntimeDiagnostics.java)
+
+## 依赖说明
+
+### 关于 `Scrapegraph-ai`
+
+当前仓库中的 `Scrapegraph-ai/` 目录仍然有用途。
+
+原因是：
+
+- `deepseek` Provider 目前仍通过 `ScrapeGraphAI + DeepSeek` 路径工作
+- 因此当前版本不能直接删除该目录而不做替代
+
+也就是说：
+
+- 如果你只使用正式模板解析，或只使用 `openai_compatible` 网关模式，对它的依赖会弱很多
+- 但如果你继续使用 `deepseek` 回退链路，它仍然是现有实现的一部分
+
 ## 测试
+
+运行测试：
 
 ```powershell
 pytest -q
 python -m compileall src tests
 ```
 
-当前本地验证结果：
+当前仓库包含：
 
-- `pytest -q`：通过
-- `python -m compileall src tests`：通过
-- Java 运行时 `mvn -q test`：通过
+- 模板匹配测试
+- 引擎流程测试
+- API 服务测试
+- 规则执行测试
+- 模板晋升测试
+- LLM 兼容层测试
 
 ## 文档
 
+- [需求与架构说明](./docs/architecture.md)
 - [模板设计说明](./docs/template-design.md)
-- [架构设计](./docs/architecture.md)
 - [Java 运行时说明](./docs/java-runtime.md)
-  - 包含跨机器抽取失败时的 Java 诊断类说明
+- [Java 代码目录](./docs/java)
+
+---
+
+如果你关心的是“如何把一次 LLM 抽取，沉淀成后续可复用、可迁移、可批量消费的网页解析模板”，这个项目就是围绕这个目标构建的。
+
