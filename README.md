@@ -190,7 +190,10 @@ Copy-Item .\config\app_config.template.json .\config\app_config.json
     "model": "deepseek-v4-pro",
     "reasoning_effort": "high",
     "thinking_enabled": true,
-    "max_tokens": 128000
+    "max_tokens": 128000,
+    "temperature": 0.1,
+    "stream": false,
+    "request_timeout_seconds": 180
   }
 }
 ```
@@ -198,7 +201,28 @@ Copy-Item .\config\app_config.template.json .\config\app_config.json
 说明：
 
 - `config/app_config.json` 已加入 `.gitignore`
-- 如果设置了环境变量 `DEEPSEEK_API_KEY`，会覆盖配置文件中的 `api_key`
+- 如果设置了环境变量 `LLM_API_KEY`，会覆盖配置文件中的 `api_key`
+- `llm.provider` 当前支持：
+  - `deepseek`：继续走 `ScrapeGraphAI + DeepSeek`
+  - `openai_compatible`：直接走 OpenAI SDK 兼容接口
+- 如果你的兼容接口配置里把 `base_url` 写成了完整的 `/chat/completions` 地址，系统会自动裁掉尾部路径，避免重复拼接
+
+OpenAI 兼容接口示例：
+
+```json
+{
+  "llm": {
+    "provider": "openai_compatible",
+    "api_key": "YOUR_INTERNAL_LLM_API_KEY",
+    "base_url": "http://YOUR_HOST:30928/v1/chat/completions",
+    "model": "glm47",
+    "max_tokens": 8192,
+    "temperature": 0.1,
+    "stream": true,
+    "request_timeout_seconds": 180
+  }
+}
+```
 
 ## 使用方式
 

@@ -29,6 +29,9 @@ class LlmSettings(BaseModel):
     reasoning_effort: str = "high"
     thinking_enabled: bool = True
     max_tokens: int = 128000
+    temperature: float = 0.1
+    stream: bool = False
+    request_timeout_seconds: int = 180
 
 
 class AppSettings(BaseModel):
@@ -57,11 +60,38 @@ def load_app_settings() -> AppSettings:
     settings = AppSettings.model_validate(payload)
     llm = settings.llm.model_copy(
         update={
-            "api_key": os.getenv("DEEPSEEK_API_KEY", settings.llm.api_key),
-            "base_url": os.getenv("DEEPSEEK_BASE_URL", settings.llm.base_url),
-            "model": os.getenv("SCRAPE_MODEL", settings.llm.model),
+            "provider": os.getenv(
+                "LLM_PROVIDER",
+                os.getenv("SCRAPE_LLM_PROVIDER", settings.llm.provider),
+            ),
+            "api_key": os.getenv(
+                "LLM_API_KEY",
+                os.getenv("DEEPSEEK_API_KEY", settings.llm.api_key),
+            ),
+            "base_url": os.getenv(
+                "LLM_BASE_URL",
+                os.getenv("DEEPSEEK_BASE_URL", settings.llm.base_url),
+            ),
+            "model": os.getenv(
+                "LLM_MODEL",
+                os.getenv("SCRAPE_MODEL", settings.llm.model),
+            ),
             "reasoning_effort": os.getenv(
                 "DEEPSEEK_REASONING_EFFORT", settings.llm.reasoning_effort
+            ),
+            "temperature": float(
+                os.getenv("LLM_TEMPERATURE", str(settings.llm.temperature))
+            ),
+            "stream": os.getenv(
+                "LLM_STREAM",
+                str(settings.llm.stream).lower(),
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
+            "request_timeout_seconds": int(
+                os.getenv(
+                    "LLM_REQUEST_TIMEOUT_SECONDS",
+                    str(settings.llm.request_timeout_seconds),
+                )
             ),
         }
     )

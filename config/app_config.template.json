@@ -1,11 +1,14 @@
 {
   "llm": {
     "provider": "deepseek",
-    "api_key": "请填写你自己的 DeepSeek API Key",
+    "api_key": "请填写你的 LLM API Key",
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-v4-pro",
     "reasoning_effort": "high",
     "thinking_enabled": true,
-    "max_tokens": 128000
+    "max_tokens": 128000,
+    "temperature": 0.1,
+    "stream": false,
+    "request_timeout_seconds": 180
   }
 }
