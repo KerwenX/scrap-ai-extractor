@@ -280,6 +280,41 @@ public class TemplateManifestRepository {
         return findBestActiveManifest(manifests, url, fingerprint, resolvedSiteId, resolvedScenario);
     }
 
+    public List<TemplateContract.TemplateManifest> recallActiveManifests(
+            Collection<TemplateContract.TemplateManifest> manifests,
+            TemplateContract.ExtractionRequest request,
+            TemplateContract.PageFingerprint fingerprint
+    ) {
+        String resolvedSiteId = resolveSiteId(request);
+        String resolvedScenario = request == null ? null : request.scenario;
+        String url = request == null ? null : request.url;
+        String requestUrlPatternHash = buildUrlPatternHash(url);
+        return recallCandidates(manifests, resolvedSiteId, resolvedScenario, requestUrlPatternHash, fingerprint);
+    }
+
+    public double cheapScoreManifest(
+            TemplateContract.TemplateManifest manifest,
+            TemplateContract.ExtractionRequest request,
+            TemplateContract.PageFingerprint fingerprint
+    ) {
+        String resolvedSiteId = resolveSiteId(request);
+        String resolvedScenario = request == null ? null : request.scenario;
+        String url = request == null ? null : request.url;
+        String requestUrlPatternHash = buildUrlPatternHash(url);
+        return cheapScore(manifest, resolvedSiteId, resolvedScenario, requestUrlPatternHash, fingerprint);
+    }
+
+    public double siteAffinityValue(String left, String right) {
+        return siteAffinity(left, right);
+    }
+
+    public double urlPatternAffinityForUrl(
+            TemplateContract.TemplateManifest manifest,
+            String url
+    ) {
+        return urlPatternAffinity(manifest, buildUrlPatternHash(url));
+    }
+
     public TemplateContract.TemplateManifest normalizeManifest(TemplateContract.TemplateManifest manifest) {
         if (manifest.lifecycleStatus == null || manifest.lifecycleStatus.trim().isEmpty()) {
             manifest.lifecycleStatus = manifest.active ? "active" : "deprecated";
