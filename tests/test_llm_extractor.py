@@ -1,16 +1,16 @@
 from hybrid_extractor.extractors.llm import ScrapeGraphFallbackExtractor
 
 
-def test_openai_base_url_normalization_removes_chat_completions_suffix():
+def test_requests_url_normalization_appends_chat_completions_for_v1_root():
     extractor = ScrapeGraphFallbackExtractor()
 
     assert (
-        extractor._normalize_openai_base_url("http://7.242.106.7:30928/v1/chat/completions")
-        == "http://7.242.106.7:30928/v1"
+        extractor._normalize_requests_url("http://7.242.106.7:30928/v1/chat/completions")
+        == "http://7.242.106.7:30928/v1/chat/completions"
     )
     assert (
-        extractor._normalize_openai_base_url("https://api.example.com/chat/completions/")
-        == "https://api.example.com"
+        extractor._normalize_requests_url("https://api.example.com/v1/")
+        == "https://api.example.com/v1/chat/completions"
     )
 
 
@@ -50,3 +50,26 @@ def test_streaming_reader_concatenates_content_chunks_only():
     ]
 
     assert extractor._read_streaming_content(stream) == '{"标题":"测试"}'
+
+
+def test_sse_streaming_reader_concatenates_data_lines_only():
+    extractor = ScrapeGraphFallbackExtractor()
+
+    lines = [
+        'data: {"choices":[{"delta":{"content":"{"}}]}'.encode("utf-8"),
+        'data: {"choices":[{"delta":{"content":"\\"标题\\":\\"测试\\""}}]}'.encode("utf-8"),
+        'data: {"choices":[{"delta":{"content":"}"}}]}'.encode("utf-8"),
+        b"data: [DONE]",
+    ]
+
+    assert extractor._read_sse_streaming_content(lines) == '{"标题":"测试"}'
+
+
+def test_extract_json_response_content_reads_standard_payload():
+    extractor = ScrapeGraphFallbackExtractor()
+
+    class FakeResponse:
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"标题\":\"测试\"}"}}]}
+
+    assert extractor._extract_json_response_content(FakeResponse()) == '{"标题":"测试"}'

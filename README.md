@@ -204,8 +204,9 @@ Copy-Item .\config\app_config.template.json .\config\app_config.json
 - 如果设置了环境变量 `LLM_API_KEY`，会覆盖配置文件中的 `api_key`
 - `llm.provider` 当前支持：
   - `deepseek`：继续走 `ScrapeGraphAI + DeepSeek`
-  - `openai_compatible`：直接走 OpenAI SDK 兼容接口
-- 如果你的兼容接口配置里把 `base_url` 写成了完整的 `/chat/completions` 地址，系统会自动裁掉尾部路径，避免重复拼接
+  - `openai_compatible`：直接走 `requests + HTTP/SSE` 兼容接口
+- 如果你的兼容接口配置里填的是 `/v1` 根地址，系统会自动补成 `/v1/chat/completions`
+- 如果你直接填完整的 `/v1/chat/completions` 地址，系统会原样使用
 
 OpenAI 兼容接口示例：
 

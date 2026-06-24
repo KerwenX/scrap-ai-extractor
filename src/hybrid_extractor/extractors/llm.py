@@ -23,8 +23,8 @@ class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
         provider = self._normalize_provider(settings.provider)
         if provider == "deepseek":
             result = self._extract_with_scrapegraph_deepseek(prompt, request, settings)
-        elif provider in {"openai_compatible", "openai-compatible", "glm", "openai"}:
-            result = self._extract_with_openai_compatible(prompt, request, settings)
+        elif provider in {"openai_compatible", "openai-compatible", "glm", "openai", "requests_sse"}:
+            result = self._extract_with_requests_compatible(prompt, request, settings)
         else:
             raise ValueError(
                 f"Unsupported llm.provider: {settings.provider}. "
@@ -67,37 +67,41 @@ class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
             return result.model_dump()
         return result
 
-    def _extract_with_openai_compatible(
+    def _extract_with_requests_compatible(
         self,
         prompt: str,
         request: ExtractionRequest,
         settings: LlmSettings,
     ):
         try:
-            from openai import OpenAI
+            import requests
         except ImportError as exc:
             raise RuntimeError(
-                "OpenAI-compatible provider requires the openai package. "
+                "OpenAI-compatible provider requires the requests package. "
                 "Please install dependencies again."
             ) from exc
 
-        client = OpenAI(
-            api_key=settings.api_key,
-            base_url=self._normalize_openai_base_url(settings.base_url),
-            timeout=settings.request_timeout_seconds,
-        )
-        messages = self._build_openai_messages(prompt, request)
-        request_kwargs = {
+        payload = {
             "model": settings.model,
-            "messages": messages,
+            "messages": self._build_openai_messages(prompt, request),
             "temperature": settings.temperature,
             "max_tokens": settings.max_tokens,
             "stream": settings.stream,
         }
-        response = client.chat.completions.create(**request_kwargs)
+        response = requests.post(
+            self._normalize_requests_url(settings.base_url),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.api_key}",
+            },
+            json=payload,
+            stream=settings.stream,
+            timeout=(10, settings.request_timeout_seconds),
+        )
+        response.raise_for_status()
         if settings.stream:
-            return self._read_streaming_content(response)
-        return self._extract_response_content(response)
+            return self._read_sse_streaming_content(response.iter_lines())
+        return self._extract_json_response_content(response)
 
     def _build_openai_messages(self, prompt: str, request: ExtractionRequest) -> list[dict[str, str]]:
         return [
@@ -134,14 +138,42 @@ class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
                 chunks.append(content)
         return "".join(chunks).strip()
 
-    def _extract_response_content(self, response) -> str:
-        choices = getattr(response, "choices", None) or []
+    def _read_sse_streaming_content(self, lines: Iterable[bytes | str]) -> str:
+        chunks: list[str] = []
+        for line in lines:
+            if not line:
+                continue
+            decoded_line = line.decode("utf-8").strip() if isinstance(line, bytes) else str(line).strip()
+            if not decoded_line.startswith("data: "):
+                continue
+            data_str = decoded_line[6:]
+            if data_str == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+            choices = chunk.get("choices", [])
+            if not choices:
+                continue
+            delta = choices[0].get("delta", {})
+            content = delta.get("content", "")
+            if content:
+                chunks.append(content)
+        return "".join(chunks).strip()
+
+    def _extract_json_response_content(self, response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return response.text.strip()
+        choices = payload.get("choices", [])
         if not choices:
             return ""
-        message = getattr(choices[0], "message", None)
+        message = choices[0].get("message")
         if message is None:
             return ""
-        content = getattr(message, "content", "")
+        content = message.get("content", "")
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
@@ -189,10 +221,8 @@ class ScrapeGraphFallbackExtractor(BaseFallbackExtractor):
     def _normalize_provider(self, provider: str) -> str:
         return provider.strip().lower().replace(" ", "_")
 
-    def _normalize_openai_base_url(self, base_url: str) -> str:
+    def _normalize_requests_url(self, base_url: str) -> str:
         normalized = base_url.strip().rstrip("/")
-        for suffix in ("/chat/completions",):
-            if normalized.endswith(suffix):
-                normalized = normalized[: -len(suffix)]
-                break
+        if normalized.endswith("/v1"):
+            normalized = f"{normalized}/chat/completions"
         return normalized
